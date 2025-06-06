@@ -1,0 +1,53 @@
+# Unnecessary folders
+__pycache__/
+backup/
+
+# # Model files
+# Coconut
+gsm_checkpoint/
+gsm_coconut_eval_model/
+gsm_coconut_model/
+gsm_model/
+prontoqa_checkpoint/
+prontoqa_eval_model/
+prontoqa_model/
+prosqa_model/
+
+# TinyZero
+model/
+checkpoints/
+*.safetensors
+
+# other
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.onnx
+*.bin
+*.tflite
+*.tar
+*.tar.gz
+*.zip
+
+# HuggingFace and tokenizer caches
+*.cache/
+*.tokenizers/
+datasets/
+transformers_cache/
+
+# ML logs & experiment folders
+logs/
+wandb/
+tensorboard/
+checkpoints/
+saved_models/
+runs/
+outputs/
+
+# VS Code settings (optional)
+.vscode/
+
+# OS junk files
+.DS_Store
+Thumbs.db
