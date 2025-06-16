@@ -20,6 +20,7 @@ from typing import Iterable, Tuple
 
 import torch
 from torch import nn
+from torch.nn.functional import logsigmoid
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
@@ -32,6 +33,8 @@ from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+
+from verl.utils.reward_score import countdown
 
 __all__ = ['DataParallelPPOActor']
 
@@ -208,14 +211,17 @@ class DataParallelPPOActor(BasePPOActor):
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages','prompts','responses']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
-        batch = data.select(batch_keys=select_keys).batch
+        batch = data.select(batch_keys=select_keys,non_tensor_batch_keys=['target','nums'])
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_mini_batch_size)
+        # dataloader = batch.split(self.config.ppo_mini_batch_size)
+        dataloader = batch.make_iterator(
+            mini_batch_size=self.config.ppo_mini_batch_size
+        )
 
         metrics = {}
         for batch_idx, data in enumerate(dataloader):
@@ -223,14 +229,18 @@ class DataParallelPPOActor(BasePPOActor):
             mini_batch = data
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
+                micro_non_tensor_batches = mini_batch.non_tensor_batch
             else:
                 # split batch into micro_batches
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
+                micro_non_tensor_batches = {
+                    k: np.array_split(v, self.config.ppo_micro_batch_size) for k, v in mini_data.non_tensor_batch.items()
+                }
 
             self.actor_optimizer.zero_grad()
 
-            for data in micro_batches:
+            for idx, data in enumerate(micro_batches):
                 data = data.cuda()  # actor device is cpu when using offload
                 responses = data['responses']
                 response_length = responses.size(1)
@@ -245,16 +255,55 @@ class DataParallelPPOActor(BasePPOActor):
                 # all return: (bsz, response_length)
                 entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
-                pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
-                                                                              log_prob=log_prob,
-                                                                              advantages=advantages,
-                                                                              eos_mask=response_mask,
-                                                                              cliprange=clip_ratio)
-                # compute entropy loss from entropy
-                entropy_loss = verl_F.masked_mean(entropy, response_mask)
+                if self.config.adv_estimator == 'reinforce':
+                    # sequence level aggregation
+                    logp_new = (log_prob * response_mask).sum(dim=-1)
+                    logp_old = (old_log_prob * response_mask).sum(dim=-1)
+                    adv_seq = (advantages * response_mask).sum(dim=-1).detach()
 
-                # compute policy loss
-                policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    # clipping
+                    r = torch.exp(logp_new - logp_old)
+                    r_clipped = r.clamp(1 - clip_ratio, 1 + clip_ratio)
+                    pg_values = torch.min(r * adv_seq, r_clipped * adv_seq)
+                    pg_loss = -pg_values.mean()
+
+                    # compute entropy loss from entropy
+                    entropy_loss = verl_F.masked_mean(entropy, response_mask)
+
+                    # compute policy loss
+                    policy_loss = pg_loss - entropy_loss * entropy_coeff
+
+                elif self.config.adv_estimator == 'dpo':
+                    lp_pi = (batch['logp_pi'] * response_mask).sum(dim=-1)          # shape [batch, 2]  (policy logprobs)
+                    lp_ref = (batch['logp_ref'] * response_mask).sum(dim=-1)        # shape [batch, 2]  (ref logprobs)
+
+                    nums = micro_non_tensor_batches['nums'][idx]
+                    target = micro_non_tensor_batches['target'][idx]
+                    batch_idxs, chosen_labels = dpo_selection(data,nums,target)  # returns indices 0 or 1
+                    rejected_labels = 1-chosen_labels
+                    if not batch_idxs: continue
+
+                    pi_ch = lp_pi[batch_idxs, chosen_labels]
+                    pi_rj = lp_pi[batch_idxs, rejected_labels]
+                    ref_ch = lp_ref[batch_idxs, chosen_labels]
+                    ref_rj = lp_ref[batch_idxs, rejected_labels]
+                    
+                    beta = self.config.dpo_beta  
+                    diff = beta * ((pi_ch - ref_ch) - (pi_rj - ref_rj))
+
+                    loss = -logsigmoid(diff)
+                    loss = verl_F.masked_mean(loss, response_mask)
+                else:
+                    pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                log_prob=log_prob,
+                                                                                advantages=advantages,
+                                                                                eos_mask=response_mask,
+                                                                                cliprange=clip_ratio)
+                    # compute entropy loss from entropy
+                    entropy_loss = verl_F.masked_mean(entropy, response_mask)
+
+                    # compute policy loss
+                    policy_loss = pg_loss - entropy_loss * entropy_coeff
 
                 if self.config.use_kl_loss:
                     ref_log_prob = data['ref_log_prob']
@@ -284,3 +333,43 @@ class DataParallelPPOActor(BasePPOActor):
             append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
         return metrics
+
+    def dpo_selection(data,numbers,target):
+        prompt_ids = data['prompts']
+        prompt_length = prompt_ids.shape[-1]
+        valid_prompt_length = data['attention_mask'][:prompt_length].sum()
+        valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+        response_ids = data['responses']
+        valid_response_length = data['attention_mask'][prompt_length:].sum()
+        valid_response_ids = response_ids[:valid_response_length]
+
+        # decode
+        sequences = torch.cat((valid_prompt_ids, valid_response_ids))
+        solutions = self.tokenizer.decode(sequences)
+        
+        batch_idxs = []
+        chosen = []
+
+        for i, (solution_pair,nums,t) in enumerate(zip(solutions, numbers, target)):
+            valid = [[False,False,-1], [False,False,-1]] # want to prefer first larger value
+
+            for pair_idx, sol in enumerate(solution_pair):
+                equation = extract_solution(solution_str=sol)
+                valid[pair_idx][0] = validate_equation(equation_str=equation, available_numbers=nums)
+                valid[pair_idx][1] = (evaluate_equation(equation_str=equation) == t)
+                valid[pair_idx][2] = -len(sol)
+            
+            # first true or shortest length response
+            for j in range(3):
+                if valid[0][j] > valid[1][j]:
+                    batch_idxs.append(i)
+                    chosen.append(0)
+                    break
+                elif valid[0][j] < valid[1][j]:
+                    batch_idxs.append(i)
+                    chosen.append(1)
+                    break
+
+        return batch_idxs, chosen
+

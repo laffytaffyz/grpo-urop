@@ -162,7 +162,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator != 'dpo': # else condition but dpo has no advantage calculation
+    else:
         raise NotImplementedError
     return data
 
@@ -489,8 +489,6 @@ class RayPPOTrainer(object):
             raise NotImplementedError
 
         # create reference policy if needed
-        if 'dpo' == self.config.algorithm.adv_estimator and not self.use_reference_policy: raise ValueError('Expected reference policy for DPO')
-
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RefPolicy],
@@ -612,7 +610,6 @@ class RayPPOTrainer(object):
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
-                print('ray trainer', gen_batch.batch.keys(),gen_batch.non_tensor_batch.keys())
 
                 with _timer('step', timing_raw):
                     # generate a batch
@@ -624,12 +621,6 @@ class RayPPOTrainer(object):
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
-
-                    print("after repeated rollout")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -650,12 +641,6 @@ class RayPPOTrainer(object):
                         with _timer('values', timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
-
-                    print("before advantage calculations")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
 
                     with _timer('adv', timing_raw):
                         # compute scores. Support both model and function-based.
@@ -686,25 +671,12 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
-                    print("after advantage calculations")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
-
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
-
-
-                    print("before actor update")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:

@@ -140,7 +140,9 @@ class FSDPSFTTrainer(object):
         # TODO (zhangchi.usc1992):
         # 1. support pretrain from random weights
         # 2. support init directly from sharded weights
-        local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
+
+        # local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
+        local_model_path = self.config.model.partial_pretrain
 
         if self.config.model.get('external_lib', None) is not None:
             # This is used to import external_lib into the huggingface systems

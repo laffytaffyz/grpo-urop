@@ -1,6 +1,7 @@
-# Unnecessary folders
+# Python 
 __pycache__/
 backup/
+.env
 
 # # Model files
 # Coconut
@@ -19,6 +20,7 @@ checkpoints/
 *.safetensors
 
 # other
+backup/
 *.pt
 *.pth
 *.ckpt

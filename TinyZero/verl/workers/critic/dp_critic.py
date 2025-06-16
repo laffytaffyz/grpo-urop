@@ -180,8 +180,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                 vpreds = self._forward_micro_batch(data)
 
                 # assert not torch.any(torch.isnan(vpreds)).item()
-
-                vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
+                if self.config.adv_estimator == 'reinforce':
+                    vf_loss = torch.nn.functional.mse_loss(vpreds * eos_mask, returns.detach() * eos_mask, reduction='sum') / eos_mask.sum()
+                    vf_clipfrac = 0.0
+                else:
+                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
                                                                      values=values,
                                                                      returns=returns,
                                                                      eos_mask=eos_mask,
