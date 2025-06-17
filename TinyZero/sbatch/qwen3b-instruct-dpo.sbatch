@@ -1,11 +1,12 @@
 #!/bin/bash                     
-#SBATCH --job-name=deepmath7b-instruct-ppo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/deepmath7b_instruct_ppo.out
-#SBATCH --error=/om/user/tiffany8/deepmath7b_instruct_ppo.err
+#SBATCH --job-name=qwen3b-instruct-dpo  # Name of the job
+#SBATCH --output=/om/user/tiffany8/qwen3b_instruct_dpo.out
+#SBATCH --error=/om/user/tiffany8/qwen3b_instruct_dpo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=160G
-#SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
+#SBATCH --time=2:00:00               # Time limit (HH:MM:SS)
+#SBATCH --partition=cbmm
 
 set -x
 
@@ -20,12 +21,12 @@ nvidia-smi
 cd /om/user/tiffany8/grpo-urop/TinyZero
 
 export N_GPUS=4
-export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/deepseek-math-7b-instruct
+export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=deepmath7b-instruct-ppo
+export EXPERIMENT_NAME=qwen2.5-3b-instruct-dpo
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/deepmath7b-instruct-ppo
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-dpo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_deepmath7b_instruct_ppo.sh
+bash ./scripts/train_qwen3b_instruct_dpo.sh

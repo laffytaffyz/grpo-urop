@@ -6,7 +6,6 @@
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
-#SBATCH --partition=cbmm              # partition for debugging
 
 set -x
 

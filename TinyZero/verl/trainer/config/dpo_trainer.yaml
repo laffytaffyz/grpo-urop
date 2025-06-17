@@ -19,6 +19,7 @@ actor_rollout_ref:
     enable_gradient_checkpointing: False
     use_remove_padding: False
   actor:
+    path: ${actor_rollout_ref.model.path}
     adv_estimator: dpo
     dpo_beta: 0.1 # beta hyperparamter for dpo
     strategy: fsdp  # This is for backward-compatibility

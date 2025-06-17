@@ -3,9 +3,9 @@
 #SBATCH --output=/om/user/tiffany8/gpt2_sft.out
 #SBATCH --error=/om/user/tiffany8/gpt2_sft.err
 #SBATCH -n 4                     # 4 CPU core
-#SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=128G
-#SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
+#SBATCH --gres=gpu:a100:2             # 2 A100 GPU 
+#SBATCH --mem=32G
+#SBATCH --time=1:00:00               # Time limit (HH:MM:SS)
 #SBATCH --partition=cbmm
 
 set -x
@@ -22,7 +22,7 @@ cd /om/user/tiffany8/grpo-urop/TinyZero
 
 export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2
-# export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/dataset # using gms8k
+export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/dataset 
 export ROLLOUT_TP_SIZE=1
 export EXPERIMENT_NAME=gpt2-sft
 export VLLM_ATTENTION_BACKEND=XFORMERS

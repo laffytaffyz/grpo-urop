@@ -1,7 +1,7 @@
 #!/bin/bash                     
-#SBATCH --job-name=gpt2-grpo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/gpt2_grpo.out
-#SBATCH --error=/om/user/tiffany8/gpt2_grpo.err
+#SBATCH --job-name=gpt2-dpo  # Name of the job
+#SBATCH --output=/om/user/tiffany8/gpt2_dpo.out
+#SBATCH --error=/om/user/tiffany8/gpt2_dpo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=128G
@@ -23,9 +23,9 @@ export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2-sft/global_step_116
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=gpt2-grpo
+export EXPERIMENT_NAME=gpt2-dpo
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-grpo
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-dpo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_gpt2_grpo.sh
+bash ./scripts/train_gpt2_dpo.sh

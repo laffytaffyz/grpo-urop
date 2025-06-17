@@ -1,4 +1,4 @@
-python3 -m verl.trainer.main_grpo \
+python3 -m verl.trainer.main_reinforce \
 data.train_files=$DATA_DIR/train.parquet \
 data.val_files=$DATA_DIR/test.parquet \
 data.train_batch_size=256 \
@@ -7,8 +7,8 @@ data.max_prompt_length=147 \
 data.max_response_length=877 \
 actor_rollout_ref.model.path=$BASE_MODEL \
 actor_rollout_ref.actor.optim.lr=5e-7 \
-actor_rollout_ref.actor.ppo_mini_batch_size=64 \
-actor_rollout_ref.actor.ppo_micro_batch_size=4 \
+actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+actor_rollout_ref.actor.ppo_micro_batch_size=8 \
 actor_rollout_ref.actor.entropy_coeff=0.01 \
 actor_rollout_ref.rollout.log_prob_micro_batch_size=8 \
 actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \

@@ -5,8 +5,7 @@
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=128G
-#SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
-#SBATCH --partition=cbmm
+#SBATCH --time=2:00:00               # Time limit (HH:MM:SS)
 
 set -x
 
@@ -21,7 +20,7 @@ nvidia-smi
 cd /om/user/tiffany8/grpo-urop/TinyZero
 
 export N_GPUS=4
-export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2
+export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2-sft/global_step_116
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/dataset
 export ROLLOUT_TP_SIZE=1
 export EXPERIMENT_NAME=gpt2-ppo

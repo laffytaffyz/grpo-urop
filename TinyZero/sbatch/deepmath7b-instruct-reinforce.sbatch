@@ -1,7 +1,7 @@
 #!/bin/bash                     
-#SBATCH --job-name=deepmath7b-instruct-ppo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/deepmath7b_instruct_ppo.out
-#SBATCH --error=/om/user/tiffany8/deepmath7b_instruct_ppo.err
+#SBATCH --job-name=deepmath7b-instruct-reinforce  # Name of the job
+#SBATCH --output=/om/user/tiffany8/deepmath7b_instruct_reinforce.out
+#SBATCH --error=/om/user/tiffany8/deepmath7b_instruct_reinforce.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=160G
@@ -23,9 +23,9 @@ export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/deepseek-math-7b-instruct
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=deepmath7b-instruct-ppo
+export EXPERIMENT_NAME=deepmath7b-instruct-reinforce
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/deepmath7b-instruct-ppo
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/deepmath7b-instruct-reinforce
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_deepmath7b_instruct_ppo.sh
+bash ./scripts/train_deepmath7b_instruct_reinforce.sh

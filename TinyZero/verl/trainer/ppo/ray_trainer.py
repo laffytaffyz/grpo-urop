@@ -162,7 +162,16 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator != 'dpo': # else condition but dpo has no advantage calculation
+    elif adv_estimator == 'dpo': # else condition but dpo has no advantage calculation
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        token_level_rewards = data.batch['token_level_rewards'] * response_mask
+
+        data.batch['advantages'] = None
+        data.batch['returns'] = None
+    else:
         raise NotImplementedError
     return data
 
@@ -612,7 +621,7 @@ class RayPPOTrainer(object):
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
-                print('ray trainer', gen_batch.batch.keys(),gen_batch.non_tensor_batch.keys())
+                # print('ray trainer', gen_batch.batch.keys(),gen_batch.non_tensor_batch.keys())
 
                 with _timer('step', timing_raw):
                     # generate a batch
@@ -625,11 +634,11 @@ class RayPPOTrainer(object):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-                    print("after repeated rollout")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
+                    # print("after repeated rollout")
+                    # for k, v in batch.batch.items():
+                    #     print(f"{k}: {v.shape}")
+                    # for k, v in batch.non_tensor_batch.items():
+                    #     print(f"{k}: {v.shape}")
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -651,11 +660,11 @@ class RayPPOTrainer(object):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
-                    print("before advantage calculations")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
+                    # print("before advantage calculations")
+                    # for k, v in batch.batch.items():
+                    #     print(f"{k}: {v.shape}")
+                    # for k, v in batch.non_tensor_batch.items():
+                    #     print(f"{k}: {v.shape}")
 
                     with _timer('adv', timing_raw):
                         # compute scores. Support both model and function-based.
@@ -686,11 +695,11 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
-                    print("after advantage calculations")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
+                    # print("after advantage calculations")
+                    # for k, v in batch.batch.items():
+                    #     print(f"{k}: {v.shape}")
+                    # for k, v in batch.non_tensor_batch.items():
+                    #     print(f"{k}: {v.shape}")
 
                     # update critic
                     if self.use_critic:
@@ -700,11 +709,11 @@ class RayPPOTrainer(object):
                         metrics.update(critic_output_metrics)
 
 
-                    print("before actor update")
-                    for k, v in batch.batch.items():
-                        print(f"{k}: {v.shape}")
-                    for k, v in batch.non_tensor_batch.items():
-                        print(f"{k}: {v.shape}")
+                    # print("before actor update")
+                    # for k, v in batch.batch.items():
+                    #     print(f"{k}: {v.shape}")
+                    # for k, v in batch.non_tensor_batch.items():
+                    #     print(f"{k}: {v.shape}")
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:

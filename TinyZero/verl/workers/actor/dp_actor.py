@@ -17,6 +17,7 @@ Single Process Actor
 
 import itertools
 from typing import Iterable, Tuple
+import numpy as np
 
 import torch
 from torch import nn
@@ -31,6 +32,7 @@ from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
+from verl.utils import hf_tokenizer
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -57,6 +59,10 @@ class DataParallelPPOActor(BasePPOActor):
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
         self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
+
+        local_path = copy_local_path_from_hdfs(config.path)
+        self.tokenizer = hf_tokenizer(local_path)
+        
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -211,7 +217,8 @@ class DataParallelPPOActor(BasePPOActor):
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages','prompts','responses']
+        # print('data keys', data.batch.keys(),data.non_tensor_batch.keys())
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'ref_log_prob', 'advantages','prompts','responses']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys,non_tensor_batch_keys=['target','nums'])
@@ -220,7 +227,8 @@ class DataParallelPPOActor(BasePPOActor):
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         # dataloader = batch.split(self.config.ppo_mini_batch_size)
         dataloader = batch.make_iterator(
-            mini_batch_size=self.config.ppo_mini_batch_size
+            mini_batch_size=self.config.ppo_mini_batch_size,
+            epochs=1
         )
 
         metrics = {}
@@ -233,9 +241,9 @@ class DataParallelPPOActor(BasePPOActor):
                 micro_non_tensor_batches = mini_batch.non_tensor_batch
             else:
                 # split batch into micro_batches
-                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
+                micro_batches = mini_batch.batch.split(self.config.ppo_micro_batch_size)
                 micro_non_tensor_batches = {
-                    k: np.array_split(v, self.config.ppo_micro_batch_size) for k, v in mini_data.non_tensor_batch.items()
+                    k: np.array_split(v, self.config.ppo_micro_batch_size) for k, v in mini_batch.non_tensor_batch.items()
                 }
 
             self.actor_optimizer.zero_grad()
@@ -273,15 +281,24 @@ class DataParallelPPOActor(BasePPOActor):
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
 
-                elif self.config.adv_estimator == 'dpo':
-                    lp_pi = (batch['logp_pi'] * response_mask).sum(dim=-1)          # shape [batch, 2]  (policy logprobs)
-                    lp_ref = (batch['logp_ref'] * response_mask).sum(dim=-1)        # shape [batch, 2]  (ref logprobs)
+                    metric_data = {
+                        'actor/entropy_loss': entropy_loss.detach().item(),
+                        'actor/pg_loss': pg_loss.detach().item(),
+                    }
 
+                elif self.config.adv_estimator == 'dpo':
+                    # print('micro tensor batch', micro_non_tensor_batches)
                     nums = micro_non_tensor_batches['nums'][idx]
                     target = micro_non_tensor_batches['target'][idx]
-                    batch_idxs, chosen_labels = dpo_selection(data,nums,target)  # returns indices 0 or 1
+                    
+                    # data selection
+                    batch_idxs, chosen_labels = self.dpo_selection(data,nums,target)  # returns indices 0 or 1
                     rejected_labels = 1-chosen_labels
                     if not batch_idxs: continue
+
+                    # calculate and filter log prob
+                    lp_pi = (log_prob * response_mask).sum(dim=-1)          # shape [batch, 2]  (policy logprobs)
+                    lp_ref = (data['ref_log_prob'] * response_mask).sum(dim=-1)        # shape [batch, 2]  (ref logprobs)
 
                     pi_ch = lp_pi[batch_idxs, chosen_labels]
                     pi_rj = lp_pi[batch_idxs, rejected_labels]
@@ -293,6 +310,11 @@ class DataParallelPPOActor(BasePPOActor):
 
                     loss = -logsigmoid(diff)
                     loss = verl_F.masked_mean(loss, response_mask)
+
+                    metric_data = {
+                        'actor/dpo_loss': loss.detach().item(),
+                    }
+
                 else:
                     pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                                 log_prob=log_prob,
@@ -304,6 +326,13 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
+
+                    metric_data = {
+                        'actor/entropy_loss': entropy_loss.detach().item(),
+                        'actor/pg_loss': pg_loss.detach().item(),
+                        'actor/pg_clipfrac': pg_clipfrac.detach().item(),
+                        'actor/ppo_kl': ppo_kl.detach().item(),
+                    }
 
                 if self.config.use_kl_loss:
                     ref_log_prob = data['ref_log_prob']
@@ -320,13 +349,7 @@ class DataParallelPPOActor(BasePPOActor):
                 loss = policy_loss / self.gradient_accumulation
                 loss.backward()
 
-                data = {
-                    'actor/entropy_loss': entropy_loss.detach().item(),
-                    'actor/pg_loss': pg_loss.detach().item(),
-                    'actor/pg_clipfrac': pg_clipfrac.detach().item(),
-                    'actor/ppo_kl': ppo_kl.detach().item(),
-                }
-                append_to_dict(metrics, data)
+                append_to_dict(metrics, metric_data)
 
             grad_norm = self._optimizer_step()
             data = {'actor/grad_norm': grad_norm.detach().item()}
@@ -334,30 +357,39 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer.zero_grad()
         return metrics
 
-    def dpo_selection(data,numbers,target):
+    def dpo_selection(self,data,numbers,target):
+        # prompt and response processing
+        attention_mask = data["attention_mask"]
         prompt_ids = data['prompts']
-        prompt_length = prompt_ids.shape[-1]
-        valid_prompt_length = data['attention_mask'][:prompt_length].sum()
-        valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
         response_ids = data['responses']
-        valid_response_length = data['attention_mask'][prompt_length:].sum()
-        valid_response_ids = response_ids[:valid_response_length]
-
-        # decode
-        sequences = torch.cat((valid_prompt_ids, valid_response_ids))
-        solutions = self.tokenizer.decode(sequences)
         
         batch_idxs = []
         chosen = []
 
-        for i, (solution_pair,nums,t) in enumerate(zip(solutions, numbers, target)):
+        for i in range((data['prompts'].shape[0])//2):
+            
+            solution_pair = []
+            for j in range(2):
+                attn = attention_mask[2*i+j]    # (rollout.n * batch, entire string length)
+                prompt = prompt_ids[2*i+j]      # (rollout.n * batch, prompt length), interleave = true (p0, p0, p1, p1)
+                response = response_ids[2*i+j]  # (rollout.n * batch, response length)
+
+                prompt_len = prompt.shape[0]
+                valid_prompt_len = attn[:prompt_len].sum()
+                valid_response_len = attn[prompt_len:].sum()
+
+                valid_prompt = prompt[-valid_prompt_len:]
+                valid_response = response[:valid_response_len]
+
+                sequence = torch.cat((valid_prompt, valid_response), dim=0)
+                solution_pair.append(self.tokenizer.decode(sequence))
+
             valid = [[False,False,-1], [False,False,-1]] # want to prefer first larger value
 
             for pair_idx, sol in enumerate(solution_pair):
-                equation = extract_solution(solution_str=sol)
-                valid[pair_idx][0] = validate_equation(equation_str=equation, available_numbers=nums)
-                valid[pair_idx][1] = (evaluate_equation(equation_str=equation) == t)
+                equation = countdown.extract_solution(solution_str=sol)
+                valid[pair_idx][0] = countdown.validate_equation(equation_str=equation, available_numbers=numbers[i])
+                valid[pair_idx][1] = (countdown.evaluate_equation(equation_str=equation) == target[i])
                 valid[pair_idx][2] = -len(sol)
             
             # first true or shortest length response
