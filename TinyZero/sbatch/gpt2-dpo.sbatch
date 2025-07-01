@@ -1,11 +1,11 @@
 #!/bin/bash                     
-#SBATCH --job-name=gpt2-dpo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/gpt2_dpo.out
-#SBATCH --error=/om/user/tiffany8/gpt2_dpo.err
+#SBATCH --job-name=gpt2-xl-dpo  # Name of the job
+#SBATCH --output=/om/user/tiffany8/gpt2_xl_dpo.out
+#SBATCH --error=/om/user/tiffany8/gpt2_xl_dpo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=128G
-#SBATCH --time=2:00:00               # Time limit (HH:MM:SS)
+#SBATCH --mem=512G
+#SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
 
 set -x
 
@@ -20,12 +20,14 @@ nvidia-smi
 cd /om/user/tiffany8/grpo-urop/TinyZero
 
 export N_GPUS=4
-export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2-sft/global_step_116
+export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2-xl-sft/global_step_116
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=gpt2-dpo
+export EXPERIMENT_NAME=gpt2-xl-dpo
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-dpo
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-xl-dpo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export TORCH_USE_CUDA_DSA=1
+export HYDRA_FULL_ERROR=1
 
 bash ./scripts/train_gpt2_dpo.sh

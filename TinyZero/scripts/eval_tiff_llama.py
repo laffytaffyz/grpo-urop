@@ -17,24 +17,13 @@ from verl.workers.reward_manager import NaiveRewardManager
 from verl.workers.rollout.hf_rollout import HFRollout
 
 ### ~~PICK MODEL PATH~~
-# tinyzero
-# model_path = "backup/20250401/TinyZero/countdown-qwen2.5-3b-instruct/actor/global_step_3600" 
-
-# qwen (missing dpo)
-model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-ppo/actor/global_step_500",
-                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-grpo/actor/global_step_500",
-                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-reinforce/actor/global_step_500"]
-
-# gpt2 (missing dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-ppo/actor/global_step_1700"
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-grpo/actor/global_step_800"
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-reinforce/actor/global_step_200"
-
-# llama (missing ppo + reinforce + dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/deepmath7b-instruct-grpo/actor/global_step_300"
-
-# deepmath (missing ppo + reinforce + dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-grpo/actor/global_step_300"
+# llama (missing dpo)
+# model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-2-7b-chat",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-ppo/actor/global_step_300",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-grpo/actor/global_step_300",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-reinforce/actor/global_step_500"]
+model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct"]
+model_names = ["llama base"]
 
 ### ~~PICK DATA~~
 # data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
@@ -44,6 +33,7 @@ assert len(model_paths) == len(model_names)
 
 @hydra.main()
 def main(config):
+    all_model_outputs = defaultdict(list)
     metric_dicts = []
 
     for i in range(len(model_paths)):
@@ -95,7 +85,7 @@ def main(config):
         val_dataloader = DataLoader(
             dataset=val_dataset,
             batch_size=3,
-            shuffle=True,
+            shuffle=False,
             drop_last=True,
             collate_fn=collate_fn,
         )
@@ -146,6 +136,10 @@ def main(config):
             sample_outputs.extend(output_texts)
             test_batch = test_batch.union(test_output_gen_batch)
 
+            # store into dict
+            for prompt, response in zip(input_texts, output_texts):
+                all_model_outputs[prompt].append(response)
+
             # evaluate using reward_function
             reward_tensor = val_reward_fn(test_batch)
             # Store scores
@@ -183,6 +177,12 @@ def main(config):
 
         metric_dicts.append(metric_dict)
     
+    print("\n\n==== Prompt-wise Model Outputs ====")
+    for prompt, responses in all_model_outputs.items():
+        print(f"\nPrompt: {prompt}\n")
+        for model_name, response in zip(model_names, responses):
+            print(f"[{model_name}]: {response}")
+
     print('all metric dictionaries:', metric_dicts)
 
 if __name__ == "__main__":

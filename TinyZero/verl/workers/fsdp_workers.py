@@ -162,12 +162,28 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                torch_dtype=torch_dtype,
-                                                                config=actor_model_config,
-                                                                attn_implementation='flash_attention_2',
-                                                                device_map="auto", # change by tiffany
-                                                                trust_remote_code=trust_remote_code)
+
+            # for jobs that have cuda OOM error
+            sync_module_states = not ("deepseek" in self.config.actor.path and ("gae" in self.config.actor.adv_estimator or "dpo" in self.config.actor.adv_estimator)) \
+                                and not ("Llama-3.2" in self.config.actor.path and "gae" in self.config.actor.adv_estimator)
+
+            if not sync_module_states:
+                actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                    torch_dtype=torch_dtype,
+                                                                    config=actor_model_config,
+                                                                    attn_implementation='flash_attention_2',
+                                                                    low_cpu_mem_usage=True, 
+                                                                    trust_remote_code=trust_remote_code)
+            
+                if any(p.is_meta for p in actor_module.parameters()):
+                    actor_module = actor_module.to_empty(device=torch.cuda.current_device())
+            else:
+                actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                    torch_dtype=torch_dtype,
+                                                                    config=actor_model_config,
+                                                                    attn_implementation='flash_attention_2',
+                                                                    device_map="auto", # change by tiffany
+                                                                    trust_remote_code=trust_remote_code)
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             # actor_module.to(torch_dtype)
 
@@ -182,7 +198,10 @@ class ActorRolloutRefWorker(Worker):
 
         # We wrap FSDP for rollout as well
         mixed_precision_config = fsdp_config.get('mixed_precision', None)
-        if mixed_precision_config is not None:
+        
+        if not sync_module_states:
+            param_dtype, reduce_dtype, buffer_dtype = torch.bfloat16, torch.bfloat16, torch.bfloat16
+        elif mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get('param_dtype', 'bf16'))
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get('reduce_dtype', 'fp32'))
             buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get('buffer_dtype', 'fp32'))
@@ -219,7 +238,7 @@ class ActorRolloutRefWorker(Worker):
             device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
-            sync_module_states=True,
+            sync_module_states=sync_module_states,
             device_mesh=self.device_mesh,
             forward_prefetch=False)
 
@@ -588,12 +607,29 @@ class CriticWorker(Worker):
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
             setattr(critic_model_config, 'hidden_dropout', '0')
-            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            torch_dtype=torch_dtype,
-                                                                            config=critic_model_config,
-                                                                            attn_implementation='flash_attention_2',
-                                                                            device_map="auto", # change by tiffany
-                                                                            trust_remote_code=trust_remote_code)
+
+            # for jobs that have cuda OOM error
+            sync_module_states = not ("deepseek" in self.config.model.path and ("gae" in self.config.adv_estimator or "dpo" in self.config.adv_estimator)) \
+                                and not ("Llama-3.2" in self.config.model.path and "gae" in self.config.adv_estimator)
+
+            if not sync_module_states:
+                critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                                torch_dtype=torch_dtype,
+                                                                                config=critic_model_config,
+                                                                                attn_implementation='flash_attention_2',
+                                                                                device_map = None,
+                                                                                low_cpu_mem_usage=True,
+                                                                                trust_remote_code=trust_remote_code)
+
+                if any(p.is_meta for p in critic_module.parameters()):
+                    critic_module = critic_module.to_empty(device=torch.cuda.current_device())
+            else:
+                critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                                torch_dtype=torch_dtype,
+                                                                                config=critic_model_config,
+                                                                                attn_implementation='flash_attention_2',
+                                                                                device_map="auto", # change by tiffany
+                                                                                trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             # critic_module.to(torch_dtype)
@@ -607,7 +643,9 @@ class CriticWorker(Worker):
 
         fsdp_config = self.config.model.fsdp_config
         mixed_precision_config = fsdp_config.get('mixed_precision', None)
-        if mixed_precision_config is not None:
+        if not sync_module_states:
+            param_dtype, reduce_dtype, buffer_dtype = torch.bfloat16, torch.bfloat16, torch.bfloat16
+        elif mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get('param_dtype', 'bf16'))
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get('reduce_dtype', 'fp32'))
             buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get('buffer_dtype', 'fp32'))
@@ -629,7 +667,7 @@ class CriticWorker(Worker):
                              device_id=torch.cuda.current_device(),
                              sharding_strategy=ShardingStrategy.FULL_SHARD,
                              mixed_precision=mixed_precision,
-                             sync_module_states=True,
+                             sync_module_states=sync_module_states,
                              forward_prefetch=False)
 
         log_gpu_memory_usage('After critic FSDP', logger=None)

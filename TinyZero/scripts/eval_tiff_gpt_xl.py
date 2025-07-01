@@ -4,6 +4,8 @@ from collections import defaultdict
 
 import torch
 import torch.distributed
+import tensordict
+from tensordict import TensorDict
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoConfig
 
@@ -15,35 +17,29 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.workers.reward_manager import NaiveRewardManager
 from verl.workers.rollout.hf_rollout import HFRollout
+from collections import defaultdict
 
 ### ~~PICK MODEL PATH~~
-# tinyzero
-# model_path = "backup/20250401/TinyZero/countdown-qwen2.5-3b-instruct/actor/global_step_3600" 
-
-# qwen (missing dpo)
-model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-ppo/actor/global_step_500",
-                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-grpo/actor/global_step_500",
-                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-reinforce/actor/global_step_500"]
-
-# gpt2 (missing dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-ppo/actor/global_step_1700"
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-grpo/actor/global_step_800"
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-reinforce/actor/global_step_200"
-
-# llama (missing ppo + reinforce + dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/deepmath7b-instruct-grpo/actor/global_step_300"
-
-# deepmath (missing ppo + reinforce + dpo)
-# model_path = "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-grpo/actor/global_step_300"
+# gpt2 xl
+# TODO: change all these paths to xl
+model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/gpt2-xl-sft/global_step_116",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-xl-ppo/actor/global_step_500",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-xl-grpo/actor/global_step_300,
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-xl-reinforce/actor/global_step_700",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/gpt2-xl-dpo/actor/global_step_800"]
 
 ### ~~PICK DATA~~
-# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
-data_path = "/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset/test.parquet"
+data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
+# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset/test.parquet"
+
+model_names = [path.split("/")[-3] for path in model_paths] 
+model_names[0] = 'base'
 
 assert len(model_paths) == len(model_names)
 
 @hydra.main()
 def main(config):
+    all_model_outputs = defaultdict(list)
     metric_dicts = []
 
     for i in range(len(model_paths)):
@@ -53,6 +49,7 @@ def main(config):
 
         trust_remote_code = True
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        tokenizer.padding_side = 'right'
 
         torch_dtype = torch.bfloat16
 
@@ -95,7 +92,7 @@ def main(config):
         val_dataloader = DataLoader(
             dataset=val_dataset,
             batch_size=3,
-            shuffle=True,
+            shuffle=False,
             drop_last=True,
             collate_fn=collate_fn,
         )
@@ -108,16 +105,18 @@ def main(config):
         data_source_lst = []
 
         hfrollout = HFRollout(module=actor_module, config=config)
+
         for data in val_dataloader:
             test_batch = DataProto.from_single_dict(data)
             test_batch = test_batch.to("cuda")
             input_ids = test_batch.batch["input_ids"]
+            device = input_ids.device
             input_texts = [
                 tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids
             ]
             sample_inputs.extend(input_texts)
 
-            test_gen_batch = test_batch.pop(["input_ids", "attention_mask", "position_ids"])
+            test_gen_batch = test_batch.pop(["input_ids", "attention_mask"])
             test_gen_batch.meta_info = {
                 "eos_token_id": tokenizer.eos_token_id,
                 "pad_token_id": tokenizer.pad_token_id,
@@ -126,16 +125,37 @@ def main(config):
                 "validate": True,
             }
 
+            max_length = actor_module.config.n_positions
+            pos_ids = torch.arange(input_ids.shape[1], device=device)
+            pos_ids = pos_ids.clamp(max=max_length - 1)
+            test_gen_batch.batch["position_ids"] = pos_ids.unsqueeze(0).expand_as(input_ids)
+
             # pad to be divisible by dp_size
             # test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, hfrollout.world_size)
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, 1)
-            test_output_gen_batch_padded = hfrollout.generate_sequences(
-                test_gen_batch_padded
-            )
-            # unpad
-            test_output_gen_batch = unpad_dataproto(
-                test_output_gen_batch_padded, pad_size=pad_size
-            )
+
+            # set token generation limit 
+            prompt_len = input_ids.shape[1]
+            safe_new_tokens = max_length - prompt_len
+            safe_new_tokens = max(safe_new_tokens, 1)
+
+            # test_gen_batch_padded.meta_info["max_new_tokens"] = safe_new_tokens
+            # test_gen_batch_padded.meta_info["max_length"] = max_length
+
+            # generate
+            input_ids = test_gen_batch.batch["input_ids"]
+            a_mask = test_gen_batch.batch["attention_mask"]
+            with torch.inference_mode():
+                out_ids = actor_module.generate(
+                    input_ids,                                   # (3, 512)
+                    attention_mask = a_mask,
+                    max_new_tokens  = safe_new_tokens,
+                    eos_token_id    = tokenizer.eos_token_id,
+                    pad_token_id    = tokenizer.pad_token_id,
+                    do_sample       = False,
+                )
+            test_output_gen_batch = DataProto(batch=TensorDict({"prompts" : input_ids, "attention_mask" : a_mask, "responses": out_ids}, batch_size = (out_ids.size(0),)))
+
             print("validation generation end")
 
             # Store generated outputs
@@ -146,8 +166,22 @@ def main(config):
             sample_outputs.extend(output_texts)
             test_batch = test_batch.union(test_output_gen_batch)
 
+            # store into dict
+            for prompt, response in zip(input_texts, output_texts):
+                all_model_outputs[prompt].append(response)
+
             # evaluate using reward_function
             reward_tensor = val_reward_fn(test_batch)
+
+            # pad reward tensor
+            batch_size, seq_len = reward_tensor.shape
+            if seq_len < max_length:
+                pad_len = max_length - seq_len
+                pad = torch.zeros(batch_size, pad_len,
+                                dtype=reward_tensor.dtype,
+                                device=reward_tensor.device)
+                reward_tensor = torch.cat([reward_tensor, pad], dim=1)
+
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
             print('scores',scores)
@@ -173,16 +207,18 @@ def main(config):
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
             metric_dict[f"val/test_score/{data_source}"] = np.mean(rewards)
-        
-        # debugging
-        # with open("eval_outputs.txt", "w") as f:
-        #     for p, r, s in zip(sample_inputs, sample_outputs, sample_scores):
-        #         f.write(f"Prompt: {p}\nResponse: {r}\nReward: {s:.4f}\n\n")
 
         print('metric dictionary:', metric_dict)
 
         metric_dicts.append(metric_dict)
     
+    # final print for comparison
+    print("\n\n==== Prompt-wise Model Outputs ====")
+    for prompt, responses in all_model_outputs.items():
+        print(f"\nPrompt: {prompt}\n")
+        for model_name, response in zip(model_names, responses):
+            print(f"[{model_name}]: {response}")
+
     print('all metric dictionaries:', metric_dicts)
 
 if __name__ == "__main__":

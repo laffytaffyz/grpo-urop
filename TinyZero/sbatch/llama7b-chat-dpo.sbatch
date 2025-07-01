@@ -1,7 +1,7 @@
 #!/bin/bash                     
-#SBATCH --job-name=llama7b-chat-reinforce  # Name of the job
-#SBATCH --output=/om/user/tiffany8/llama7b_chat_reinforce.out
-#SBATCH --error=/om/user/tiffany8/llama7b_chat_reinforce.err
+#SBATCH --job-name=llama7b-chat-dpo  # Name of the job
+#SBATCH --output=/om/user/tiffany8/llama7b_chat_dpo.out
+#SBATCH --error=/om/user/tiffany8/llama7b_chat_dpo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=160G
@@ -23,9 +23,9 @@ export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-2-7b-chat-hf
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
 export ROLLOUT_TP_SIZE=4
-export EXPERIMENT_NAME=llama-7b-chat-reinforce
+export EXPERIMENT_NAME=llama-7b-chat-dpo
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-reinforce
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-dpo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_llama7b_chat_reinforce.sh
+bash ./scripts/train_llama7b_chat_dpo.sh

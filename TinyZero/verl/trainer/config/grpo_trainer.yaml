@@ -19,7 +19,8 @@ actor_rollout_ref:
     enable_gradient_checkpointing: False
     use_remove_padding: False
   actor:
-    adv_estimator: grpo
+    path: ${actor_rollout_ref.model.path}
+    adv_estimator: ${algorithm.adv_estimator} 
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: 64
@@ -50,6 +51,7 @@ actor_rollout_ref:
       fsdp_size: -1
       model_dtype: bfloat16 # change by tiffany
   ref:
+    path: ${actor_rollout_ref.model.path}
     fsdp_config:
       param_offload: False
       wrap_policy:
@@ -62,6 +64,8 @@ actor_rollout_ref:
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: vllm
+    path: ${actor_rollout_ref.model.path}
+    adv_estimator: ${algorithm.adv_estimator}
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -86,7 +90,7 @@ actor_rollout_ref:
     n: 4 # > 1 for grpo
 
 critic:
-  adv_estimator: grpo
+  adv_estimator: ${algorithm.adv_estimator}
   strategy: fsdp
   optim:
     lr: 1e-5

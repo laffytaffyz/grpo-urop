@@ -33,6 +33,7 @@ from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_u
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 from verl.utils import hf_tokenizer
+from verl.utils.fs import copy_local_path_from_hdfs
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -60,7 +61,7 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 
-        local_path = copy_local_path_from_hdfs(config.path)
+        local_path = copy_local_path_from_hdfs(self.config.path)
         self.tokenizer = hf_tokenizer(local_path)
         
 
@@ -287,29 +288,33 @@ class DataParallelPPOActor(BasePPOActor):
                     }
 
                 elif self.config.adv_estimator == 'dpo':
-                    # print('micro tensor batch', micro_non_tensor_batches)
-                    nums = micro_non_tensor_batches['nums'][idx]
-                    target = micro_non_tensor_batches['target'][idx]
+                    # print('micro non tensor batch', idx, micro_non_tensor_batches)
+                    nums = micro_non_tensor_batches['nums']
+                    target = micro_non_tensor_batches['target']
                     
                     # data selection
-                    batch_idxs, chosen_labels = self.dpo_selection(data,nums,target)  # returns indices 0 or 1
-                    rejected_labels = 1-chosen_labels
-                    if not batch_idxs: continue
+                    chosen_labels, rejected_labels = self.dpo_selection(data,nums,target)  # returns indices 0 or 1
+                    # print('chosen_labels', chosen_labels)
+                    # print('rejected_labels', rejected_labels)
+                    if not chosen_labels: continue
 
                     # calculate and filter log prob
                     lp_pi = (log_prob * response_mask).sum(dim=-1)          # shape [batch, 2]  (policy logprobs)
                     lp_ref = (data['ref_log_prob'] * response_mask).sum(dim=-1)        # shape [batch, 2]  (ref logprobs)
 
-                    pi_ch = lp_pi[batch_idxs, chosen_labels]
-                    pi_rj = lp_pi[batch_idxs, rejected_labels]
-                    ref_ch = lp_ref[batch_idxs, chosen_labels]
-                    ref_rj = lp_ref[batch_idxs, rejected_labels]
+                    # print("lp_pi", lp_pi)
+                    # print("lp_ref",lp_ref)
+                    pi_ch = lp_pi[chosen_labels]
+                    pi_rj = lp_pi[rejected_labels]
+                    ref_ch = lp_ref[chosen_labels]
+                    ref_rj = lp_ref[rejected_labels]
                     
                     beta = self.config.dpo_beta  
                     diff = beta * ((pi_ch - ref_ch) - (pi_rj - ref_rj))
 
                     loss = -logsigmoid(diff)
                     loss = verl_F.masked_mean(loss, response_mask)
+                    policy_loss = loss
 
                     metric_data = {
                         'actor/dpo_loss': loss.detach().item(),
@@ -358,18 +363,28 @@ class DataParallelPPOActor(BasePPOActor):
         return metrics
 
     def dpo_selection(self,data,numbers,target):
+        print('numbers before:', numbers)
+        print('target before:', target)
+
+        # if isinstance(target, np.ndarray) and target.ndim > 1: target = target.ravel()
+        if isinstance(numbers,list): numbers = numbers[0]
+        if isinstance(target,list): target = target[0]
+
+        print('numbers after:', numbers)
+        print('target after:', target)
+
         # prompt and response processing
         attention_mask = data["attention_mask"]
         prompt_ids = data['prompts']
         response_ids = data['responses']
         
-        batch_idxs = []
         chosen = []
+        rejected = []
 
-        for i in range((data['prompts'].shape[0])//2):
+        for i in range((data['prompts'].shape[0])//2): # for batch
             
             solution_pair = []
-            for j in range(2):
+            for j in range(2): # for rollout.n
                 attn = attention_mask[2*i+j]    # (rollout.n * batch, entire string length)
                 prompt = prompt_ids[2*i+j]      # (rollout.n * batch, prompt length), interleave = true (p0, p0, p1, p1)
                 response = response_ids[2*i+j]  # (rollout.n * batch, response length)
@@ -388,20 +403,26 @@ class DataParallelPPOActor(BasePPOActor):
 
             for pair_idx, sol in enumerate(solution_pair):
                 equation = countdown.extract_solution(solution_str=sol)
+                print('evaluating equation', i, ": ", equation, countdown.evaluate_equation(equation_str=equation))
+                print('numbers', numbers[i])
+                print('target', target[i])
                 valid[pair_idx][0] = countdown.validate_equation(equation_str=equation, available_numbers=numbers[i])
                 valid[pair_idx][1] = (countdown.evaluate_equation(equation_str=equation) == target[i])
                 valid[pair_idx][2] = -len(sol)
             
             # first true or shortest length response
             for j in range(3):
+                # print('valid', i, valid)
                 if valid[0][j] > valid[1][j]:
-                    batch_idxs.append(i)
-                    chosen.append(0)
+                    chosen.append(2*i + 0)
+                    rejected.append(2*i + 1)
                     break
                 elif valid[0][j] < valid[1][j]:
-                    batch_idxs.append(i)
-                    chosen.append(1)
+                    chosen.append(2*i + 1)
+                    rejected.append(2*i + 0)
+                    break
+                elif not valid[0][j] or not valid[1][j]: # must fulfill prev requirements first
                     break
 
-        return batch_idxs, chosen
+        return chosen, rejected
 

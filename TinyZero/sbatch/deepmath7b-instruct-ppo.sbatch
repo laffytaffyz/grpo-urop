@@ -4,7 +4,7 @@
 #SBATCH --error=/om/user/tiffany8/deepmath7b_instruct_ppo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=160G
+#SBATCH --mem=512G
 #SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
 
 set -x

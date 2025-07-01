@@ -217,8 +217,8 @@ def compute_data_metrics(batch, use_critic=True):
     prompt_length = response_info['prompt_length']
     response_length = response_info['response_length']
 
-    valid_adv = torch.masked_select(advantages, response_mask)
-    valid_returns = torch.masked_select(returns, response_mask)
+    if advantages is not None: valid_adv = torch.masked_select(advantages, response_mask)
+    if returns is not None: valid_returns = torch.masked_select(returns, response_mask)
 
     if use_critic:
         values = batch.batch['values']
@@ -234,6 +234,7 @@ def compute_data_metrics(batch, use_critic=True):
             torch.max(sequence_score).detach().item(),
         'critic/score/min':
             torch.min(sequence_score).detach().item(),
+
         # reward
         'critic/rewards/mean':
             torch.mean(sequence_reward).detach().item(),
@@ -241,6 +242,8 @@ def compute_data_metrics(batch, use_critic=True):
             torch.max(sequence_reward).detach().item(),
         'critic/rewards/min':
             torch.min(sequence_reward).detach().item(),
+
+        **({
         # adv
         'critic/advantages/mean':
             torch.mean(valid_adv).detach().item(),
@@ -248,6 +251,9 @@ def compute_data_metrics(batch, use_critic=True):
             torch.max(valid_adv).detach().item(),
         'critic/advantages/min':
             torch.min(valid_adv).detach().item(),
+        } if advantages is not None else {}),
+
+        **({
         # returns
         'critic/returns/mean':
             torch.mean(valid_returns).detach().item(),
@@ -255,6 +261,8 @@ def compute_data_metrics(batch, use_critic=True):
             torch.max(valid_returns).detach().item(),
         'critic/returns/min':
             torch.min(valid_returns).detach().item(),
+        } if returns is not None else {}),
+
         **({
             # values
             'critic/values/mean': torch.mean(valid_values).detach().item(),

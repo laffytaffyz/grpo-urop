@@ -88,16 +88,32 @@ class vLLMRollout(BaseRollout):
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
-        self.inference_engine = LLM(actor_module,
-                                    tokenizer=tokenizer,
-                                    model_hf_config=model_hf_config,
-                                    tensor_parallel_size=tensor_parallel_size,
-                                    dtype=config.dtype,
-                                    enforce_eager=config.enforce_eager,
-                                    gpu_memory_utilization=config.gpu_memory_utilization,
-                                    skip_tokenizer_init=False,
-                                    max_model_len=config.prompt_length + config.response_length,
-                                    load_format=config.load_format)
+
+        if ("Llama-3." in self.config.path and ("dpo" in self.config.adv_estimator or "grpo" in self.config.adv_estimator)) or \
+            ("gpt2-xl" in self.config.path and ("dpo" in self.config.adv_estimator or "grpo" in self.config.adv_estimator)) or \
+            ("deepseek" in self.config.path and "dpo" in self.config.adv_estimator):
+            self.inference_engine = LLM(actor_module,
+                                        tokenizer=tokenizer,
+                                        model_hf_config=model_hf_config,
+                                        tensor_parallel_size=tensor_parallel_size,
+                                        dtype=config.dtype,
+                                        enforce_eager=config.enforce_eager,
+                                        gpu_memory_utilization=config.gpu_memory_utilization,
+                                        skip_tokenizer_init=False,
+                                        max_model_len=config.prompt_length + config.response_length,
+                                        load_format=config.load_format,
+                                        swap_space=64)
+        else:
+            self.inference_engine = LLM(actor_module,
+                                        tokenizer=tokenizer,
+                                        model_hf_config=model_hf_config,
+                                        tensor_parallel_size=tensor_parallel_size,
+                                        dtype=config.dtype,
+                                        enforce_eager=config.enforce_eager,
+                                        gpu_memory_utilization=config.gpu_memory_utilization,
+                                        skip_tokenizer_init=False,
+                                        max_model_len=config.prompt_length + config.response_length,
+                                        load_format=config.load_format)
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.offload_model_weights()

@@ -1,10 +1,10 @@
 #!/bin/bash                     
-#SBATCH --job-name=llama7b-chat-reinforce  # Name of the job
-#SBATCH --output=/om/user/tiffany8/llama7b_chat_reinforce.out
-#SBATCH --error=/om/user/tiffany8/llama7b_chat_reinforce.err
+#SBATCH --job-name=llama8b-instruct-grpo  # Name of the job
+#SBATCH --output=/om/user/tiffany8/llama8b_instruct_grpo.out
+#SBATCH --error=/om/user/tiffany8/llama8b_instruct_grpo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=160G
+#SBATCH --mem=512G
 #SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
 
 set -x
@@ -20,12 +20,12 @@ nvidia-smi
 cd /om/user/tiffany8/grpo-urop/TinyZero
 
 export N_GPUS=4
-export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-2-7b-chat-hf
+export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.1-8B-Instruct
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
-export ROLLOUT_TP_SIZE=4
-export EXPERIMENT_NAME=llama-7b-chat-reinforce
+export ROLLOUT_TP_SIZE=1
+export EXPERIMENT_NAME=llama-8b-instruct-grpo
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-7b-chat-reinforce
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-8b-instruct-grpo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_llama7b_chat_reinforce.sh
+bash ./scripts/train_llama7b_chat_grpo.sh

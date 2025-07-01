@@ -103,7 +103,9 @@ def main(config):
         # ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         os.environ['NCCL_DEBUG'] = "WARN"
-        ray.init(num_cpus = 4, num_gpus = 4)
+        object_store_mem = config.get("ray", {}).get("object_store_memory", None)
+        plasma_dir = config.get("ray", {}).get("plasma_directory", None)
+        ray.init(num_cpus = 4, num_gpus = 4, _temp_dir = plasma_dir, object_store_memory = object_store_mem)
     ray.get(main_task.remote(config))
     torch.set_default_dtype(torch.bfloat16)
 
