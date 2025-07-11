@@ -29,17 +29,15 @@ model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct",
 model_names=["qwen base", "llama base","qwen 500", "llama 100", "llama 300", "llama 700"]
 
 ### ~~PICK DATA~~
-# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
-# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset/test.parquet"
-data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm8k_sft_test_modified.parquet"
+data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/aime_train_modified.parquet"
 
 assert len(model_paths) == len(model_names)
 
-class GSM8KDataset(torch.utils.data.Dataset):
+class AIMEDataset(torch.utils.data.Dataset):
     def __init__(self, parquet_path, tokenizer, max_len=512):
         import pandas as pd, pyarrow.parquet as pq
         df = pq.read_table(parquet_path).to_pandas()
-        self.questions = df["question"].tolist()
+        self.questions = df["problem"].tolist()
         self.answers   = df["answer"].astype(str).str.strip().tolist()
         self.tok = tokenizer
         self.max_len = max_len
@@ -54,13 +52,6 @@ class GSM8KDataset(torch.utils.data.Dataset):
         enc = {"input_ids" : enc["input_ids"].squeeze(0), 
                 "attention_mask": enc["attention_mask"].squeeze(0)}
         return q, enc, self.answers[idx] 
-
-def extract_numeric_answer(text):
-    # everything after '####' if present
-    if "####" in text:
-        text = text.split("####")[-1]
-    numbers = re.findall("-?\\d+\\.?\\d*", text)
-    return numbers[-1].lstrip("0") if numbers else ""
 
 ANSWER_TAG_RE = re.compile(
     r"<\s*answer\s*>(.*?)<\s*/\s*answer\s*>",
@@ -127,7 +118,7 @@ def main():
             "temperature":      1.0, 
         }
 
-        val_dataset   = GSM8KDataset(data_path, tokenizer)
+        val_dataset   = AIMEDataset(data_path, tokenizer)
         
         collator = DataCollatorWithPadding(tokenizer, padding="longest", return_tensors="pt")
 
@@ -179,8 +170,6 @@ def main():
                     print("prompt:", prompt)
                     print("response:", pred)
                     print("response answer:", extract_answer_tag(pred))
-
-                    ans = extract_numeric_answer(ans)
 
                     total += 1
                     if extract_answer_tag(pred) == ans:

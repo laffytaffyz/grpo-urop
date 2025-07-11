@@ -29,18 +29,17 @@ model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct",
 model_names=["qwen base", "llama base","qwen 500", "llama 100", "llama 300", "llama 700"]
 
 ### ~~PICK DATA~~
-# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
-# data_path = "/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset/test.parquet"
-data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm8k_sft_test_modified.parquet"
+data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/mathqa_test_modified.parquet"
 
 assert len(model_paths) == len(model_names)
 
-class GSM8KDataset(torch.utils.data.Dataset):
+class MathQADataset(torch.utils.data.Dataset):
     def __init__(self, parquet_path, tokenizer, max_len=512):
         import pandas as pd, pyarrow.parquet as pq
         df = pq.read_table(parquet_path).to_pandas()
-        self.questions = df["question"].tolist()
-        self.answers   = df["answer"].astype(str).str.strip().tolist()
+        self.questions = df["Problem"].tolist()
+        self.answers   = df["correct"].astype(str).str.strip().tolist()
+        self.category  = df['category'].tolist()
         self.tok = tokenizer
         self.max_len = max_len
 
@@ -53,14 +52,7 @@ class GSM8KDataset(torch.utils.data.Dataset):
                        return_tensors="pt")
         enc = {"input_ids" : enc["input_ids"].squeeze(0), 
                 "attention_mask": enc["attention_mask"].squeeze(0)}
-        return q, enc, self.answers[idx] 
-
-def extract_numeric_answer(text):
-    # everything after '####' if present
-    if "####" in text:
-        text = text.split("####")[-1]
-    numbers = re.findall("-?\\d+\\.?\\d*", text)
-    return numbers[-1].lstrip("0") if numbers else ""
+        return q, enc, self.answers[idx], self.category[idx]
 
 ANSWER_TAG_RE = re.compile(
     r"<\s*answer\s*>(.*?)<\s*/\s*answer\s*>",
@@ -127,14 +119,14 @@ def main():
             "temperature":      1.0, 
         }
 
-        val_dataset   = GSM8KDataset(data_path, tokenizer)
+        val_dataset   = MathQADataset(data_path, tokenizer)
         
         collator = DataCollatorWithPadding(tokenizer, padding="longest", return_tensors="pt")
 
         def collate(batch):
-            prompts, encs, answers = zip(*batch)
+            prompts, encs, answers, categories = zip(*batch)
             padded = collator(list(encs))             
-            return prompts, padded, list(answers)
+            return prompts, padded, list(answers), categories
 
         val_dataloader = DataLoader(
             val_dataset, 
@@ -145,11 +137,12 @@ def main():
 
         assert len(val_dataloader) >= 1
 
-        correct, total = 0, 0
+        correct = defaultdict(int)
+        total = defaultdict(int)
 
         print('evaluation start')
         with torch.no_grad():
-            for prompt_texts, enc_batch, answers in val_dataloader:
+            for prompt_texts, enc_batch, answers, categories in val_dataloader:
                 enc_batch = {k: v.to("cuda") for k, v in enc_batch.items()}
 
                 dp = DataProto.from_single_dict(enc_batch)
@@ -174,32 +167,33 @@ def main():
                 outputs = tokenizer.batch_decode(out_dp.batch["responses"], 
                                                 skip_special_tokens=True)
 
-                for prompt, pred, ans in zip(prompt_texts, outputs, answers): 
+                for prompt, pred, ans, cat in zip(prompt_texts, outputs, answers, categories): 
                     all_model_outputs[prompt].append(pred)
                     print("prompt:", prompt)
+                    print("category:", cat)
                     print("response:", pred)
                     print("response answer:", extract_answer_tag(pred))
 
-                    ans = extract_numeric_answer(ans)
-
-                    total += 1
+                    total['overall'] += 1
+                    total[cat] += 1
                     if extract_answer_tag(pred) == ans:
-                        correct += 1
+                        correct['overall'] += 1
+                        correct[cat] += 1
                         print('correct:', ans)
                     else:
                         print('wrong:', ans)
                 
                 data_counter += 1
                 print('evaluated batch #', data_counter)
-                print('accuracy so far', correct, '/', total)
-                if data_counter >= 20 and total > 0: break
+                for k in total.keys():
+                    print('accuracy so far for', k, ":", correct[k], '/', total[k])
 
-        accuracy = 100.0 * correct/total
-        metric_dict = {f"val/accuracy": accuracy}
+        
+        metric_dict = {k: 100.0 * correct[k]/total[k] for k in total.keys()}
 
         print('metric dictionary:', metric_dict)
 
-        metric_dicts.append(metric_dict)
+        metric_dicts.append((model_names[i], metric_dict))
 
     print("\n\n==== Prompt-wise Model Outputs ====")
     for prompt, responses in all_model_outputs.items():
