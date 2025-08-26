@@ -4,8 +4,9 @@
 #SBATCH --error=/om/user/tiffany8/qwen3b_instruct_ppo.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=128G
-#SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
+#SBATCH --mem=512G
+#SBATCH --time=168:00:00               # Time limit (HH:MM:SS)
+#SBATCH --partition=cbmm               # Time limit (HH:MM:SS)
 
 set -x
 

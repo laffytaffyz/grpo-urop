@@ -17,6 +17,14 @@ prosqa_model/
 # TinyZero
 model/
 checkpoints/
+response_analysis/aime/
+response_analysis/copal/
+response_analysis/countdown/
+response_analysis/gpqa/
+response_analysis/gsm/
+response_analysis/mathqa/
+response_analysis/mctaco/
+response_analysis/sample/
 *.safetensors
 
 # other

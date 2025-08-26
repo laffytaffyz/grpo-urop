@@ -91,7 +91,8 @@ class vLLMRollout(BaseRollout):
 
         if ("Llama-3." in self.config.path and ("dpo" in self.config.adv_estimator or "grpo" in self.config.adv_estimator)) or \
             ("gpt2-xl" in self.config.path and ("dpo" in self.config.adv_estimator or "grpo" in self.config.adv_estimator)) or \
-            ("deepseek" in self.config.path and "dpo" in self.config.adv_estimator):
+            ("deepseek" in self.config.path and "dpo" in self.config.adv_estimator) or \
+            not any(model_name in self.config.path for model_name in ["Mistral",'Llama-3.1']):
             self.inference_engine = LLM(actor_module,
                                         tokenizer=tokenizer,
                                         model_hf_config=model_hf_config,

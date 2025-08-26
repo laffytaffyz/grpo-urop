@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=comparing-models-accelerate
+#SBATCH --job-name=comparing-models-mctaco
 #SBATCH --gres=gpu:a100:4
 #SBATCH -n 4 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --output=comparing-models-qwen-llama-grpo-accelerate.out
-#SBATCH --error=comparing-models-qwen-llama-grpo-accelerate.err
+#SBATCH --output=comparing-models-taco-mctaco.out
+#SBATCH --error=comparing-models-taco-mctaco.err
 
 set -x
 
@@ -25,4 +25,4 @@ export HYDRA_FULL_ERROR=1
 export TORCH_USE_CUDA_DSA=1
 export HYDRA_FULL_ERROR=1
 
-python scripts/comparing_models.py
+python scripts/comparing_models_mctaco.py

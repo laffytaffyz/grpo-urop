@@ -1,10 +1,10 @@
 #!/bin/bash                     
-#SBATCH --job-name=qwen3b-instruct-grpo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/qwen3b_instruct_grpo.out
-#SBATCH --error=/om/user/tiffany8/qwen3b_instruct_grpo.err
+#SBATCH --job-name=qwen3b-instruct-grpo-lang-diversity  # Name of the job
+#SBATCH --output=/om/user/tiffany8/qwen3b_instruct_grpo_lang_diversity.out
+#SBATCH --error=/om/user/tiffany8/qwen3b_instruct_grpo_lang_diversity.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
-#SBATCH --mem=128G
+#SBATCH --mem=512G
 #SBATCH --time=48:00:00               # Time limit (HH:MM:SS)
 
 set -x
@@ -23,9 +23,9 @@ export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=qwen2.5-3b-instruct-grpo
+export EXPERIMENT_NAME=qwen2.5-3b-instruct-lang-diversity
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-grpo
+export CKPT_DIR=/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-diversity
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 bash ./scripts/train_qwen3b_instruct_grpo.sh

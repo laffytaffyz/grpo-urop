@@ -17,4 +17,5 @@ test.loc[needs_tail, "question"] = head + test.loc[needs_tail, "question"] + tai
 
 print(test['question'].iloc[0])
 
+# 1319
 test.to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm8k_sft_test_modified.parquet")

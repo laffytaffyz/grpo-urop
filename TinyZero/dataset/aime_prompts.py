@@ -23,6 +23,8 @@ print(test['problem'])
 needs_tail = ~test["problem"].str.contains(repr(head[1:20]), regex=False)
 test.loc[needs_tail, "problem"] = head + test.loc[needs_tail, "problem"] + tail
 
-print(test['problem'].iloc[0])
+# print(test['problem'].iloc[0])
+print(test)
 
+# 90 rows
 test.to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/aime_train_modified.parquet")

@@ -164,8 +164,10 @@ class ActorRolloutRefWorker(Worker):
             warnings.simplefilter("ignore")
 
             # for jobs that have cuda OOM error
-            sync_module_states = not ("deepseek" in self.config.actor.path and ("gae" in self.config.actor.adv_estimator or "dpo" in self.config.actor.adv_estimator)) \
-                                and not ("Llama-3.2" in self.config.actor.path and "gae" in self.config.actor.adv_estimator)
+            print('path check', self.config.actor.path, any(model_name in self.config.actor.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral']))
+            sync_module_states = not ("deep" in self.config.actor.path and any(rl_algo in self.config.actor.adv_estimator for rl_algo in ['grpo',"gae",'dpo'])) \
+                                and not ("Llama-3.2" in self.config.actor.path and "gae" in self.config.actor.adv_estimator) \
+                                and not any(model_name in self.config.actor.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral'])
 
             if not sync_module_states:
                 actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
@@ -230,6 +232,7 @@ class ActorRolloutRefWorker(Worker):
             sharding_strategy = ShardingStrategy.FULL_SHARD
 
         # TODO: add transformer policy
+        _has_meta = any(p.is_meta for p in actor_module.parameters())
         actor_module_fsdp = FSDP(
             actor_module,
             param_init_fn=init_fn,
@@ -609,9 +612,10 @@ class CriticWorker(Worker):
             setattr(critic_model_config, 'hidden_dropout', '0')
 
             # for jobs that have cuda OOM error
-            sync_module_states = not ("deepseek" in self.config.model.path and ("gae" in self.config.adv_estimator or "dpo" in self.config.adv_estimator)) \
-                                and not ("Llama-3.2" in self.config.model.path and "gae" in self.config.adv_estimator)
-
+            sync_module_states = not ("deep" in self.config.model.path and any(rl_algo in self.config.adv_estimator for rl_algo in ['grpo',"gae",'dpo'])) \
+                                and not ("Llama-3.2" in self.config.model.path and "gae" in self.config.adv_estimator) \
+                                and not any(model_name in self.config.model.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral'])
+                                
             if not sync_module_states:
                 critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                                 torch_dtype=torch_dtype,

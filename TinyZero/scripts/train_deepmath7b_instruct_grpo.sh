@@ -1,6 +1,6 @@
 python3 -m verl.trainer.main_grpo \
-data.train_files=$DATA_DIR/train.parquet \
-data.val_files=$DATA_DIR/test.parquet \
+data.train_files=$DATA_DIR/mctaco_train_modified.parquet \
+data.val_files=$DATA_DIR/mctaco_test_modified.parquet \
 data.train_batch_size=256 \
 data.val_batch_size=1312 \
 data.max_prompt_length=256 \

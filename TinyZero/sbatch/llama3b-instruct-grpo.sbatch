@@ -1,7 +1,7 @@
 #!/bin/bash                     
-#SBATCH --job-name=llama3b-instruct-grpo  # Name of the job
-#SBATCH --output=/om/user/tiffany8/llama3b_instruct_grpo.out
-#SBATCH --error=/om/user/tiffany8/llama3b_instruct_grpo.err
+#SBATCH --job-name=llama3b-instruct-grpo-lang-diversity  # Name of the job
+#SBATCH --output=/om/user/tiffany8/llama3b_instruct_grpo_countdown_lang_diversity.out
+#SBATCH --error=/om/user/tiffany8/llama3b_instruct_grpo_countdown_lang_diversity.err
 #SBATCH -n 4                     # 4 CPU core
 #SBATCH --gres=gpu:a100:4             # 4 A100 GPU 
 #SBATCH --mem=512G
@@ -23,9 +23,9 @@ export N_GPUS=4
 export BASE_MODEL=/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct
 export DATA_DIR=/om/user/tiffany8/grpo-urop/TinyZero/qwen_dataset
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME=llama-3b-instruct-grpo
+export EXPERIMENT_NAME=llama-3b-instruct-lang-diversity
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo
+export CKPT_DIR=/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-diversity
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-bash ./scripts/train_llama7b_chat_grpo.sh
+bash ./scripts/train_llama_instruct_grpo.sh

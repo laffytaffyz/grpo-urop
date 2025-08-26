@@ -4,8 +4,8 @@
 #SBATCH -n 4 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --output=comparing-models-qwen-llama-grpo-mathqa.out
-#SBATCH --error=comparing-models-qwen-llama-grpo-mathqa.err
+#SBATCH --output=comparing-models-taco-mathqa.out
+#SBATCH --error=comparing-models-taco-mathqa.err
 
 set -x
 

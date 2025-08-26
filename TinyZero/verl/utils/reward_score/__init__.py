@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from . import countdown
+
 def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None):
     if data_source == "openai/gsm8k":
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
     elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
-        from . import math
+        from . import math_reward
 
         res = math.compute_score(solution_str, ground_truth)
         # [Optional] Math-Verify Integration
@@ -61,9 +63,11 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
 
         res = geo3k.compute_score(solution_str, ground_truth)
     elif data_source == "countdown": # change by tiffany
-        from . import countdown
-
         res = countdown.compute_score(solution_str, ground_truth)
+    elif data_source == "mc_taco": # change by tiffany
+        from . import mctaco
+
+        res = mctaco.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
