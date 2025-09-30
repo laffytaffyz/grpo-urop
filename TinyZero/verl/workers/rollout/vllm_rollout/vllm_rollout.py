@@ -155,6 +155,17 @@ class vLLMRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
 
+    def _gen_single_seq(self, token_ids: List[int], **kwargs):
+        """Call vLLM with exactly one sequence and n=1. Safe with chunked prefill."""
+        sp_kwargs = dict(kwargs); sp_kwargs.pop("n", None)
+        with self.update_sampling_params(n=1, **sp_kwargs):
+            out = self.inference_engine.generate(
+                prompts=None,
+                sampling_params=self.sampling_params,
+                prompt_token_ids=[token_ids],  # ONE sequence
+                use_tqdm=False)
+        return out
+
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
@@ -188,17 +199,123 @@ class vLLMRollout(BaseRollout):
             }
 
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = self.inference_engine.generate(
-                prompts=None,  # because we have already convert it to prompt token id
-                sampling_params=self.sampling_params,
-                prompt_token_ids=idx_list,
-                use_tqdm=False)
+        # with self.update_sampling_params(**kwargs):
+        #     output = self.inference_engine.generate(
+        #         prompts=None,  # because we have already convert it to prompt token id
+        #         sampling_params=self.sampling_params,
+        #         prompt_token_ids=idx_list,
+        #         use_tqdm=False)
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        response = output[0].to(idx.device)
-        log_probs = output[1].to(idx.device)
+        # # TODO(sgm): disable logprob when recompute_log_prob is enable
+        # # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+        # response = output[0].to(idx.device)
+        # log_probs = output[1].to(idx.device)
+
+        # users can customize different sampling_params at different run
+        want_n = (self.config.n if self.config.n and do_sample else 1)
+
+        # If chunked prefill is enabled, NEVER give vLLM more than one sequence
+        # in a single .generate() call. Emulate batching and n>1 outside.
+        chunked_enabled = bool(getattr(self.config, "enable_chunked_prefill", False))
+
+        def _normalize_to_targetT(t, T):
+            if t.shape[1] < T:
+                return pad_sequence_to_length(t, T, self.pad_token_id)
+            elif t.shape[1] > T:
+                return t[:, :T]
+            return t
+
+        # if chunked_enabled and (want_n > 1 or batch_size > 1):
+        #     # ---- SAFE PATH FOR CHUNKED PREFILL ----
+        #     responses = []
+        #     logps = []
+        #     for token_ids in idx_list:  # iterate prompts one-by-one
+        #         for _ in range(want_n):  # emulate n>1 with multiple calls
+        #             seed = None
+        #             if do_sample:
+        #                 # different seed per sample to preserve exploration
+        #                 seed = int(torch.randint(0, 2**31 - 1, ()).item())
+        #             out = self._gen_single_seq(token_ids, seed=seed, **kwargs)
+        #             # out is a tuple(Tensor, Tensor) in your fork
+        #             resp, lp = out[0], out[1]
+
+        #             resp = resp.to(idx.device)
+        #             lp   = lp.to(idx.device)
+
+        #             target_T = int(self.config.response_length)
+        #             cur_T = resp.shape[1]
+        #             if cur_T < target_T:
+        #                 resp = pad_sequence_to_length(resp, target_T, self.pad_token_id)
+        #                 lp   = pad_sequence_to_length(lp,   target_T, self.pad_token_id)
+        #             elif cur_T > target_T:
+        #                 resp = resp[:, :target_T]
+        #                 lp   = lp[:,   :target_T]
+
+        #             responses.append(resp.to(idx.device))  # [1, T]
+        #             logps.append(lp.to(idx.device))        # [1, T]
+
+        #     response = torch.cat(responses, dim=0)  # [B*want_n, T]
+        #     log_probs = torch.cat(logps, dim=0)     # [B*want_n, T]
+        # else:
+        #     # ---- ORIGINAL FAST PATH (batched) ----
+        #     with self.update_sampling_params(n=want_n, **kwargs):
+        #         output = self.inference_engine.generate(
+        #             prompts=None,  # because we have already convert it to prompt token id
+        #             sampling_params=self.sampling_params,
+        #             prompt_token_ids=idx_list,
+        #             use_tqdm=False)
+
+        #     # if n = 1: (bs, T) ; if n > 1: (bs * n, T)
+        #     response = output[0].to(idx.device)
+        #     log_probs = output[1].to(idx.device)
+
+        try:
+            with self.update_sampling_params(**kwargs):
+                output = self.inference_engine.generate(
+                    prompts=None,
+                    sampling_params=self.sampling_params,
+                    prompt_token_ids=idx_list,
+                    use_tqdm=False
+                )
+            response = output[0].to(idx.device)
+            log_probs = output[1].to(idx.device)
+
+            # # Optional: belt & suspenders to ensure uniform width
+            # target_T = int(self.config.response_length)
+            # response = _normalize_to_targetT(response, target_T)
+            # log_probs = _normalize_to_targetT(log_probs, target_T)
+
+            if chunked_enabled and (want_n > 1 or batch_size > 1):
+                print(f"[rollout] fast path: batched (B={batch_size}, n={want_n})")
+
+        except AssertionError as e:
+            # vLLM chunked prefill / scheduler asserts (e.g., "len(seqs) == 1")
+            if "len(seqs) == 1" in str(e) or "schedule" in str(e).lower():
+                if chunked_enabled and (want_n > 1 or batch_size > 1):
+                    print(f"[rollout] fallback -> serialized due to scheduler assert: {e}")
+
+                # ---- Serialized, safe path (only when batched path fails) ----
+                responses, logps = [], []
+                target_T = int(self.config.response_length)
+                for token_ids in idx_list:
+                    for _ in range(want_n):
+                        seed = int(torch.randint(0, 2**31 - 1, ()).item()) if do_sample else None
+                        out = self._gen_single_seq(token_ids, seed=seed, **kwargs)
+                        resp, lp = out[0].to(idx.device), out[1].to(idx.device)
+                        resp = _normalize_to_targetT(resp, target_T)
+                        lp   = _normalize_to_targetT(lp,   target_T)
+                        responses.append(resp)  # [1, T]
+                        logps.append(lp)        # [1, T]
+                response = torch.cat(responses, dim=0)      # [B*n, T]
+                log_probs = torch.cat(logps, dim=0)         # [B*n, T]
+            else:
+                raise
+        
+        # # logging new rollout code above
+        # if chunked_enabled and (want_n > 1 or batch_size > 1):
+        #     print("[rollout] chunked path: serialized (B={}, n={})".format(batch_size, want_n))
+        # else:
+        #     print("[rollout] fast path: batched (B={}, n={})".format(batch_size, want_n))
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)

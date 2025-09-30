@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=comparing-models-copal
+#SBATCH --job-name=comparing-models-reward-models-copal
 #SBATCH --gres=gpu:a100:4
 #SBATCH -n 4 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --output=comparing-models-taco-copal.out
-#SBATCH --error=comparing-models-taco-copal.err
+#SBATCH --output=comparing-models-reward-models-copal.out
+#SBATCH --error=comparing-models-reward-models-copal.err
 
 set -x
 

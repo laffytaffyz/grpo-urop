@@ -44,7 +44,6 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
         print(f"Extracted answer: {answer}")
         print(f"Solution string: {solution_str}")
 
-
     if answer is None: 
         if do_print:
             print(f"No answer found")

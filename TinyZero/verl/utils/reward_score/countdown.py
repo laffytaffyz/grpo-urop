@@ -322,18 +322,18 @@ def language_diversity_reward(response, k=3):
     p_langs, p_scripts = process_languages(response)
     lang_count = 0
 
-    for lang, prob in p_langs: 
-        if prob > 1e-5: 
-            lang_count += 1
-        else:
-            break 
+    # for lang, prob in p_langs: 
+    #     if prob > 1e-5: 
+    #         lang_count += 1
+    #     else:
+    #         break 
     
     for lang, prob in p_scripts:
         if prob > 1e-5:
             lang_count += 1
         else: break
 
-    return math.atan(lang_count)/(math.PI/2)
+    return (math.atan(lang_count)/(math.pi/2) - 0.5) * 2 # zero reward with one language, zero to one
     # return (1 - 1 / (lang_count**(1/k))) if lang_count > 1 else 0
 
 try:
@@ -403,41 +403,41 @@ def _merge_short_and_filter(sents, min_words=4, min_alpha=0.4):
     # filter again after merging
     return [s for s in merged if len(s.split()) >= min_words and _alpha_ratio(s) >= min_alpha]
 
-_model = None
-def semantic_coherence_reward(response, model_name="all-MiniLM-L6-v2",k=15):
-    global _model
-    if _model is None:
-        _model = SentenceTransformer(model_name)
+# _model = None
+# def semantic_coherence_reward(response, model_name="all-MiniLM-L6-v2",k=15):
+#     global _model
+#     if _model is None:
+#         _model = SentenceTransformer(model_name)
 
-    # t = patch_math(response)
-    t = response
-    sents = _sent_tokenize_relaxed(t)
-    sents = _merge_short_and_filter(sents)
+#     # t = patch_math(response)
+#     t = response
+#     sents = _sent_tokenize_relaxed(t)
+#     sents = _merge_short_and_filter(sents)
 
-    if len(sents) <= 1:
-        # Don’t give full credit; return a neutral high-ish score, e.g., 0.7
-        return 0.7
+#     if len(sents) <= 1:
+#         # Don’t give full credit; return a neutral high-ish score, e.g., 0.7
+#         return 0.7
 
-    vecs = _model.encode(sents, normalize_embeddings=True)
-    vecs = np.array(vecs, dtype=np.float32)
+#     vecs = _model.encode(sents, normalize_embeddings=True)
+#     vecs = np.array(vecs, dtype=np.float32)
 
-    # Adjacent similarity
-    adj = [float(np.dot(vecs[i], vecs[i+1])) for i in range(len(vecs)-1)]
-    mean_adj = float(np.mean(adj)) if adj else 0.0
+#     # Adjacent similarity
+#     adj = [float(np.dot(vecs[i], vecs[i+1])) for i in range(len(vecs)-1)]
+#     mean_adj = float(np.mean(adj)) if adj else 0.0
 
-    # Centroid similarity
-    centroid = vecs.mean(axis=0)
-    centroid = centroid / max(1e-8, np.linalg.norm(centroid))
-    cent = [float(np.dot(v, centroid)) for v in vecs]
-    mean_cent = float(np.mean(cent))
+#     # Centroid similarity
+#     centroid = vecs.mean(axis=0)
+#     centroid = centroid / max(1e-8, np.linalg.norm(centroid))
+#     cent = [float(np.dot(v, centroid)) for v in vecs]
+#     mean_cent = float(np.mean(cent))
 
-    # Blend them (tune weights as you like)
-    score = 0.6 * mean_adj + 0.4 * mean_cent
-    score = float(max(0.0, min(1.0, score)))
-    print('score', score)
-    print('after scaling',1 / (1 + math.exp(-15 * (score - 0.5))))
+#     # Blend them (tune weights as you like)
+#     score = 0.6 * mean_adj + 0.4 * mean_cent
+#     score = float(max(0.0, min(1.0, score)))
+#     print('score', score)
+#     print('after scaling',1 / (1 + math.exp(-15 * (score - 0.5))))
 
-    return 1 / (1 + math.exp(-15 * (score - 0.5)))
+#     return 1 / (1 + math.exp(-15 * (score - 0.5)))
 
 def compute_score(solution_str, ground_truth, method='strict', format_score=0.1, score=1.):
     """The scoring function for countdown task.
@@ -453,8 +453,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
     # 'answer and format', 'format only', 'answer only', 'close enough'
     # extra reward and penalty functions: language_consistency_reward, language_diversity_reward, semantic_coherence_reward
     training_tag = 'answer only' 
-    extra_reward = None
-    r_scale = 0.5
+    extra_reward = language_diversity_reward
+    r_scale = 0.3
     penalty = None
     p_scale = 0.25
 
@@ -488,8 +488,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
         # Validate equation uses correct numbers
         if not validate_equation(equation, numbers):
             score = format_score
-            score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
-            score -= p_scale * penalty(solution_str) if penalty is not None else 0
+            # score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
+            # score -= p_scale * penalty(solution_str) if penalty is not None else 0
 
             if do_print:
                 print(f"Invalid equation")
@@ -501,8 +501,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
             result = evaluate_equation(equation)
             if result is None:
                 score = format_score
-                score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
-                score -= p_scale * penalty(solution_str) if penalty is not None else 0
+                # score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
+                # score -= p_scale * penalty(solution_str) if penalty is not None else 0
 
                 if do_print:
                     print(f"Could not evaluate equation")
@@ -522,8 +522,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
                 return score 
             else:
                 score = format_score
-                score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
-                score -= p_scale * penalty(solution_str) if penalty is not None else 0
+                # score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
+                # score -= p_scale * penalty(solution_str) if penalty is not None else 0
                 
                 if do_print:
                     print(f"Wrong result: equation = {result}, target = {target}")
@@ -531,8 +531,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0.1,
                 return format_score
         except:
             score = format_score
-            score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
-            score -= p_scale * penalty(solution_str) if penalty is not None else 0
+            # score += (-r_scale) * score + r_scale * extra_reward(solution_str) if extra_reward is not None else 0
+            # score -= p_scale * penalty(solution_str) if penalty is not None else 0
 
             if do_print:
                 print(f"Error evaluating equation")

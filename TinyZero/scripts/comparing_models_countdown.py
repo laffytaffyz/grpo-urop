@@ -43,6 +43,18 @@ model_names = ["llama8b base", "llama8b taco", "deepmath base", "deepmath taco",
                 "qwen base", "qwen taco", "qwen 500",
                 "llama base", "llama taco", "llama 100", "llama 300", "llama 700"]
 
+model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-answer-only/actor/global_step_500",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-coherence/actor/global_step_110",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-consistency/actor/global_step_500",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-diversity/actor/global_step_100",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-countdown-answer-only/actor/global_step_600",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-coherence/actor/global_step_100",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-consistency/actor/global_step_400",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-diversity/actor/global_step_400"
+                ]
+
+model_names = ['llama answer only','llama coherence','llama consistency','llama diversity',
+                'qwen answer only','qwen coherence','qwen consistency','qwen diversity']
 
 # model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct",
 #                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/qwen-3b-instruct-ppo/actor/global_step_1300",
@@ -144,7 +156,7 @@ def main(config):
                 "eos_token_id": tokenizer.eos_token_id,
                 "pad_token_id": tokenizer.pad_token_id,
                 "recompute_log_prob": False,
-                "do_sample": False,
+                "do_sample": True,
                 "validate": True,
             }
 
@@ -187,6 +199,7 @@ def main(config):
 
             data_counter += 1
             if data_counter >= 120: break
+            break
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)

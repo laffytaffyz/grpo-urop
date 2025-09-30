@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=comparing-models-aime
+#SBATCH --job-name=comparing-reward-models-aime
 #SBATCH --gres=gpu:a100:4
 #SBATCH -n 4 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --output=comparing-models-taco-aime.out
-#SBATCH --error=comparing-models-taco-aime.err
+#SBATCH --output=comparing-models-reward-models-aime.out
+#SBATCH --error=comparing-models-reward-models-aime.err
 
 set -x
 

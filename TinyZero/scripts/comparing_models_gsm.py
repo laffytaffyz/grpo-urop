@@ -20,28 +20,43 @@ from verl.workers.reward_manager import NaiveRewardManager
 from verl.workers.rollout.hf_rollout import HFRollout
 
 ### ~~PICK MODEL PATH~~
-model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.1-8B-Instruct",
-                "/om2/user/tiffany8/checkpoints/TinyZero/llama-8b-instruct-grpo-taco/actor/global_step_50",
+# model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.1-8B-Instruct",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/llama-8b-instruct-grpo-taco/actor/global_step_50",
 
-                "/om/user/tiffany8/grpo-urop/TinyZero/model/deepseek-math-7b-instruct",
-                "/om2/user/tiffany8/checkpoints/TinyZero/deepmath7b-instruct-taco/actor/global_step_100", 
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/model/deepseek-math-7b-instruct",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/deepmath7b-instruct-taco/actor/global_step_100", 
 
-                "/om/user/tiffany8/grpo-urop/TinyZero/model/Mistral-7B-Instruct-v0.3",
-                "/om2/user/tiffany8/checkpoints/TinyZero/mistral-7b-instruct-grpo-taco/actor/global_step_50",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/model/Mistral-7B-Instruct-v0.3",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/mistral-7b-instruct-grpo-taco/actor/global_step_50",
                 
-                "/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct",
-                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-taco/actor/global_step_200",
-                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo/actor/global_step_500",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/model/Qwen2.5-3B-Instruct",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-taco/actor/global_step_200",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo/actor/global_step_500",
 
-                "/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct",
-                "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo-taco/actor/global_step_200",
-                "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_100",
-                "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_300",
-                "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_700"]
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo-taco/actor/global_step_200",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_100",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_300",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/llama-3b-instruct-grpo/actor/global_step_700"]
 
-model_names = ["llama8b base", "llama8b taco", "deepmath base", "deepmath taco", "mistral base", "mistral taco",
-                "qwen base", "qwen taco", "qwen 500",
-                "llama base", "llama taco", "llama 100", "llama 300", "llama 700"]
+# model_names = ["llama8b base", "llama8b taco", "deepmath base", "deepmath taco", "mistral base", "mistral taco",
+#                 "qwen base", "qwen taco", "qwen 500",
+#                 "llama base", "llama taco", "llama 100", "llama 300", "llama 700"]
+
+# model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-answer-only/actor/global_step_500",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-coherence/actor/global_step_110",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-consistency/actor/global_step_500",
+#                 "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-diversity/actor/global_step_100",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-countdown-answer-only/actor/global_step_600",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-coherence/actor/global_step_100",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-consistency/actor/global_step_400",
+#                 "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-diversity/actor/global_step_400"]
+
+# model_names = ['llama answer only','llama coherence','llama consistency','llama diversity',
+#                 'qwen answer only','qwen coherence','qwen consistency','qwen diversity']
+
+model_paths = ['/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-script-diversity/actor/global_step_200',
+                '/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-countdown-script-diversity/actor/global_step_400']
 
 ### ~~PICK DATA~~
 # data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/test.parquet"
@@ -130,7 +145,7 @@ def main():
         config = {
             "micro_batch_size": 4,
 
-            "do_sample":        False,
+            "do_sample":        True,
             "max_new_tokens":   256,
             "pad_token_id":     tokenizer.pad_token_id,
             "eos_token_id":     tokenizer.eos_token_id,
@@ -167,7 +182,7 @@ def main():
                 dp.meta_info = {
                     "eos_token_id": tokenizer.eos_token_id,
                     "pad_token_id": tokenizer.pad_token_id,
-                    "do_sample": False,
+                    "do_sample": True,
                     }
 
                 input_ids = dp.batch["input_ids"]

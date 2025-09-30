@@ -17,21 +17,19 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-from verl.utils.reward_score import gsm8k, math_reward, multiply, countdown, mctaco
+from verl.utils.reward_score import gsm8k, math, multiply, countdown
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import os
 
 def _select_rm_score_fn(data_source):
-    if data_source == 'openai/gsm8k' or data_source == 'gsm8k':
+    if data_source == 'openai/gsm8k':
         return gsm8k.compute_score
     elif data_source == 'lighteval/MATH':
-        return math_reward.compute_score
+        return math.compute_score
     elif "multiply" in data_source or "arithmetic" in data_source:
         return multiply.compute_score
     elif "countdown" in data_source:
         return countdown.compute_score
-    elif "mc_taco" in data_source:
-        return mctaco.compute_score
     else:
         raise NotImplementedError
 
@@ -97,7 +95,7 @@ import ray
 import hydra
 
 
-@hydra.main(config_path='config', config_name='grpo_trainer', version_base=None)
+@hydra.main(config_path='config', config_name='es_trainer', version_base=None)
 def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
@@ -105,9 +103,7 @@ def main(config):
         # ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         os.environ['NCCL_DEBUG'] = "WARN"
-        object_store_mem = config.get("ray", {}).get("object_store_memory", None)
-        plasma_dir = config.get("ray", {}).get("plasma_directory", None)
-        ray.init(num_cpus = 4, num_gpus = 4, _temp_dir = plasma_dir, object_store_memory = object_store_mem)
+        ray.init(num_cpus = 4, num_gpus = 4)
     ray.get(main_task.remote(config))
     torch.set_default_dtype(torch.bfloat16)
 

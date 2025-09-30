@@ -43,6 +43,18 @@ model_names = ["llama8b base", "llama8b taco", "deepmath base", "deepmath taco",
                 "qwen base", "qwen taco", "qwen 500",
                 "llama base", "llama taco", "llama 100", "llama 300", "llama 700"]
 
+model_paths = ["/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-answer-only/actor/global_step_500",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-coherence/actor/global_step_110",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-consistency/actor/global_step_500",
+                "/om/user/tiffany8/grpo-urop/TinyZero/checkpoints/TinyZero/llama-3b-instruct-grpo-countdown-lang-diversity/actor/global_step_100",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-countdown-answer-only/actor/global_step_600",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-coherence/actor/global_step_100",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-consistency/actor/global_step_400",
+                "/om2/user/tiffany8/checkpoints/TinyZero/qwen-3b-instruct-grpo-lang-diversity/actor/global_step_400"]
+
+model_names = ['llama answer only','llama coherence','llama consistency','llama diversity',
+                'qwen answer only','qwen coherence','qwen consistency','qwen diversity']
+
 ### ~~PICK DATA~~
 data_path = "/om/user/tiffany8/grpo-urop/TinyZero/dataset/mathqa_test_modified.parquet"
 

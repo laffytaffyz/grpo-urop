@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=comparing-models-mathqa
+#SBATCH --job-name=comparing-models-reward-models-mathqa
 #SBATCH --gres=gpu:a100:4
 #SBATCH -n 4 
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --output=comparing-models-taco-mathqa.out
-#SBATCH --error=comparing-models-taco-mathqa.err
+#SBATCH --output=comparing-models-reward-models-mathqa.out
+#SBATCH --error=comparing-models-reward-models-mathqa.err
 
 set -x
 
