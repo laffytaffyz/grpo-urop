@@ -276,10 +276,8 @@ def language_diversity_reward(response, k=3):
     # return (1 - 1 / (lang_count**(1/k))) if lang_count > 1 else 0
 
 
-def compute_score(solution_str, ground_truth, method='strict', format_score=0., score=1.):
+def compute_score(solution_str, ground_truth, method='strict', format_score=0., score=1., do_print=False, extra_info=None):
     """The scoring function for GSM8k.
-
-    Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
 
     Args:
         solution_str: the solution text
@@ -289,7 +287,7 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0., 
         score: the score for the correct answer
     """
     answer = extract_solution(solution_str=solution_str, method=method)
-    do_print = True
+    do_print = extra_info is not None and extra_info['do_print']
     
     if do_print:
         print(f"--------------------------------")

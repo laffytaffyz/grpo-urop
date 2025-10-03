@@ -18,11 +18,11 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     if data_source == "openai/gsm8k" or data_source == 'gsm8k':
         from . import gsm8k
 
-        res = gsm8k.compute_score(solution_str, ground_truth)
+        res = gsm8k.compute_score(solution_str, ground_truth,extra_info=extra_info)
     elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
         from . import math_reward
 
-        res = math.compute_score(solution_str, ground_truth)
+        res = math_reward.compute_score(solution_str, ground_truth)
         # [Optional] Math-Verify Integration
         # For enhanced accuracy, consider utilizing Math-Verify (https://github.com/huggingface/Math-Verify).
         # Note: Math-Verify needs to be manually installed via pip: `pip install math-verify`.
@@ -69,7 +69,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
 
         res = mctaco.compute_score(solution_str, ground_truth)
     else:
-        raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
+        raise NotImplementedError(f"Reward function is not implemented for {data_source}")
 
     if isinstance(res, dict):
         return res

@@ -39,6 +39,9 @@ class NaiveRewardManager:
             else:
                 return data.batch["rm_scores"]
 
+        extra_info = data_item.non_tensor_batch.get("extra_info", {}) or {}
+        do_print = bool(extra_info.get("do_print", False))
+
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         reward_extra_info = defaultdict(list)
 
@@ -68,14 +71,14 @@ class NaiveRewardManager:
 
             extra_info = data_item.non_tensor_batch.get("extra_info", None)
 
-
-            print('response',response_str,'ground truth', ground_truth)
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
+            if do_print:
+                print('response',response_str,'ground truth', ground_truth)
+                score = self.compute_score(
+                    data_source=data_source,
+                    solution_str=response_str,
+                    ground_truth=ground_truth,
+                    extra_info=extra_info,
+                )
 
             if isinstance(score, dict):
                 reward = score["score"]
@@ -90,7 +93,7 @@ class NaiveRewardManager:
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
-            if already_print_data_sources[data_source] < self.num_examine:
+            if do_print and already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)

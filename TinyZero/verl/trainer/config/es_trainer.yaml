@@ -17,41 +17,29 @@ model:
   use_remove_padding: false
 trainer:
   algo: es
-  population_size: 64
-  noise_std: 0.02
-  fitness_shaping: rank  # or centered, zscore
-  optimizer: sgd         # optional for xNES/CMA variants
-  grad_accum: 1
-  eval_every: 100
-
-trainer:
-  algo: es
-  total_epochs: 30
-  total_generations: 10000
+  total_generations: 200
   population_size: 64
   noise_std: 0.02
   learning_rate: 0.05
   antithetic: true
-  fitness_shaping: rank
-  project_name: null
-  experiment_name: null
-  logger: ['console','wandb']
+  fitness_shaping: rank       # options: rank, centered, zscore
+  print_every: 10
+  logger: ['wandb']
   nnodes: 1
   n_gpus_per_node: 4
-  save_freq: -1
-  test_freq: -1
-  eval_batch_size: 128               # eval prompts for tracking true progress
-  clip_norm: null                    # optional, if you convert g to fp16/bf16
-  default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
+  save_freq: 50
+  test_freq: 50
+  project_name: null
+  experiment_name: null
+  default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
-
 rollout:
   backend: hf                        # hf is faster to swap weights than vllm
   path: ${model.path}
   dtype: ${model.dtype}
-  do_sample: true
+  do_sample: false
   n: 1
-  temperature: 1.0
+  temperature: 0
   top_k: 0                           # 0 for HF, -1 for vLLM
   top_p: 1.0
   prompt_length: ${data.max_prompt_length}

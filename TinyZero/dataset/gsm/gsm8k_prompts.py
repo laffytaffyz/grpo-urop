@@ -80,5 +80,11 @@ from transformers import AutoTokenizer
 train_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/train.parquet")
 test_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/test.parquet")
 
-print(train_df)
-print(test_df)
+train_df[:500].to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_train.parquet")
+test_df[:100].to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_test.parquet")
+
+tiny_train_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_train.parquet")
+tiny_test_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_test.parquet")
+
+print(tiny_train_df)
+print(tiny_test_df)

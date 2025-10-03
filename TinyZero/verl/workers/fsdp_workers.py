@@ -39,6 +39,7 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from codetiming import Timer
+import numpy as np
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -526,6 +527,65 @@ class ActorRolloutRefWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+    def evaluate_population(self, prompts: DataProto, seeds: list[int], noise_std: float) -> DataProto:
+        # 1. Keep a copy of the original weights.
+        original_params = [param.data.clone() for param in self.actor.actor_module.parameters()]
+
+        outputs = []
+        try:
+            for seed in seeds:
+                self._apply_noise(seed, noise_std)
+                # Reuse existing rollout path.
+                population_prompts = prompts.copy()
+                population_prompts.meta_info["recompute_log_prob"] = False
+                generated = self.generate_sequences(population_prompts)
+                generated.non_tensor_batch.setdefault("seed", np.array([seed], dtype=np.int64))
+                outputs.append(generated)
+                self._revert_noise(seed, noise_std)
+        finally:
+            for param, backup in zip(self.actor.actor_module.parameters(), original_params):
+                param.data.copy_(backup)
+
+        # Merge all outputs into a single DataProto
+        return DataProto.concat(outputs)
+    
+    def _apply_noise(self, seed: int, scale: float) -> None:
+        gen = torch.Generator(device="cuda")
+        gen.manual_seed(int(seed))
+        for param in self.actor.actor_module.parameters():
+            noise = torch.randn_like(param, generator=gen)
+            param.data.add_(scale * noise)
+
+    def _revert_noise(self, seed: int, scale: float) -> None:
+        gen = torch.Generator(device="cuda")
+        gen.manual_seed(int(seed))
+        for param in self.actor.actor_module.parameters():
+            noise = torch.randn_like(param, generator=gen)
+            param.data.sub_(scale * noise)
+    
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def accumulate_es_update(self, seeds: list[int], rewards: list[float], noise_std: float):
+        weighted_update = []
+        for param in self.actor.actor_module.parameters():
+            update = torch.zeros_like(param, device=param.device)
+            weighted_update.append(update)
+
+        for reward, seed in zip(rewards, seeds):
+            gen = torch.Generator(device="cuda")
+            gen.manual_seed(int(seed))
+            for update, param in zip(weighted_update, self.actor.actor_module.parameters()):
+                noise = torch.randn_like(param, generator=gen)
+                update.add_(reward * noise)
+
+        scale = 1.0 / (len(seeds) * noise_std)
+        return [update.mul_(scale).cpu() for update in weighted_update]
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def apply_es_update(self, updates: list[torch.Tensor], learning_rate: float):
+        for param, update in zip(self.actor.actor_module.parameters(), updates):
+            param.data.add_(learning_rate * update.to(param.device))
+
 
 
 class CriticWorker(Worker):

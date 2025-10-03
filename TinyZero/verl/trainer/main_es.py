@@ -18,7 +18,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 from verl import DataProto
 import torch
 from verl.utils.reward_score import gsm8k, math, multiply, countdown
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.es.ray_es_trainer import RayESTrainer, ResourcePoolManager, Role
 import os
 
 def _select_rm_score_fn(data_source):
@@ -44,6 +44,7 @@ class RewardManager():
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
+        do_print = bool(data.meta_info.get("do_print", False))
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
@@ -86,7 +87,7 @@ class RewardManager():
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print(sequences_str)
+                if do_print: print(sequences_str)
 
         return reward_tensor
 
@@ -127,26 +128,20 @@ def main_task(config):
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.workers.fsdp_workers import ActorRolloutRefWorker
         from verl.single_controller.ray import RayWorkerGroup
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == 'megatron':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.workers.megatron_workers import ActorRolloutRefWorker
         from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:
         raise NotImplementedError
 
-    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
-        Role.Critic: ray.remote(CriticWorker),
-        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     global_pool_id = 'global_pool'
@@ -155,16 +150,7 @@ def main_task(config):
     }
     mapping = {
         Role.ActorRollout: global_pool_id,
-        Role.Critic: global_pool_id,
-        Role.RefPolicy: global_pool_id,
     }
-
-    # we should adopt a multi-source reward function here
-    # - for rule-based rm, we directly call a reward score
-    # - for model-based rm, we call a model
-    # - for code related prompt, we send to a sandbox if there are test cases
-    # - finally, we combine all the rewards together
-    # - The reward type depends on the tag of the data
     if config.reward_model.enable:
         if config.reward_model.strategy == 'fsdp':
             from verl.workers.fsdp_workers import RewardModelWorker
@@ -182,13 +168,14 @@ def main_task(config):
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-    trainer = RayPPOTrainer(config=config,
+    trainer = RayESTrainer(config=config,
                             tokenizer=tokenizer,
                             role_worker_mapping=role_worker_mapping,
                             resource_pool_manager=resource_pool_manager,
                             ray_worker_group_cls=ray_worker_group_cls,
                             reward_fn=reward_fn,
                             val_reward_fn=val_reward_fn)
+
     trainer.init_workers()
     trainer.fit()
 
