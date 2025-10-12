@@ -1,6 +1,6 @@
 import pandas as pd, re
 from transformers import AutoTokenizer
-# tok = AutoTokenizer.from_pretrained("/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct", use_fast=True)
+tok = AutoTokenizer.from_pretrained("/om/user/tiffany8/grpo-urop/TinyZero/model/Llama-3.2-3B-Instruct", use_fast=True)
 
 # def extract_numeric_answer(text):
 #     # everything after '####' if present
@@ -80,11 +80,22 @@ from transformers import AutoTokenizer
 train_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/train.parquet")
 test_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/test.parquet")
 
-train_df[:500].to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_train.parquet")
-test_df[:100].to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_test.parquet")
+print(train_df)
+print(train_df.iloc[0]['question'])
 
-tiny_train_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_train.parquet")
-tiny_test_df = pd.read_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_test.parquet")
+def filter_by_length(df, max_len=256):
+    mask = df["question"].apply(
+        lambda text: len(tok.encode(text, add_special_tokens=False)) <= max_len
+    )
+    return df[mask]
 
-print(tiny_train_df)
+tiny_train_df = filter_by_length(train_df, max_len=256).head(500)
+tiny_test_df = filter_by_length(test_df, max_len=256).head(100)
+
+tiny_train_df.to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_train.parquet")
+tiny_test_df.to_parquet("/om/user/tiffany8/grpo-urop/TinyZero/dataset/gsm/tiny_test.parquet")
+
+print(tiny_train_df.iloc[0]['question'])
 print(tiny_test_df)
+print(tiny_test_df.iloc[0]['question'])
+print(tiny_test_df.iloc[0]['reward_model'])

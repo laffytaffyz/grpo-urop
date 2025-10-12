@@ -189,6 +189,11 @@ class RayESTrainer:
         wg = self.ray_worker_group_cls(
             resource_pool=actor_pool, ray_cls_with_init=worker_dict_cls
         )
+        # keep a strong reference so Ray does not garbage collect the colocated actor
+        if not hasattr(self, "_colocated_worker_groups"):
+            self._colocated_worker_groups = []
+        self._colocated_worker_groups.append(wg)
+
         spawned = wg.spawn(prefix_set=colocated.keys())
         self.actor_rollout_wg = spawned["actor_rollout"]
 
@@ -286,9 +291,11 @@ class RayESTrainer:
 
                 if do_print: print(f"********BATCH #{batch_idx}********")
 
+                population_start = time.time()
                 population_batch = self._evaluate_population(
                     seeds=seeds,
                     prompts=prompts,
+                    batch_idx=batch_idx,
                     do_print=do_print,
                 )
 
@@ -300,14 +307,24 @@ class RayESTrainer:
                 # Collapse token-level rewards into a scalar per population member.
                 member_rewards = population_batch.rewards.sum(dim=-1).float()
                 generation_rewards.extend(member_rewards.tolist())
+                per_member_stats = {
+                    f"population/reward/{i}": float(r)
+                    for i, r in enumerate(member_rewards)
+                }
+                per_member_stats.update({
+                    f"population/seed/{i}": float(population_batch.seeds[i])
+                    for i in range(len(population_batch.seeds))
+                })
+                logger.log(per_member_stats, step=global_step)
+                self._print_population_summary(generation, batch_idx, member_rewards)
                 best_value, best_idx = member_rewards.max(dim=0)
                 worst_value, worst_idx = member_rewards.min(dim=0)
                 best_worst_records.append(
                     {
                         "best_reward": float(best_value),
-                        "best_seed": float(population_batch.seeds[int(best_idx)]),
+                        "best_seed": float(population_batch.seeds[int(best_idx) % len(population_batch.seeds)]),
                         "worst_reward": float(worst_value),
-                        "worst_seed": float(population_batch.seeds[int(worst_idx)]),
+                        "worst_seed": float(population_batch.seeds[int(worst_idx) % len(population_batch.seeds)]),
                     }
                 )
                 global_step += 1
@@ -340,6 +357,7 @@ class RayESTrainer:
     def _evaluate_population(self,
                             seeds: Sequence[int],
                             prompts: DataProto,
+                            batch_idx: int,
                             do_print: bool = False,
                         ) -> PopulationBatch:
         """
@@ -353,16 +371,23 @@ class RayESTrainer:
                 "pad_token_id": self.tokenizer.pad_token_id,
                 "population_size": len(seeds),
                 "noise_std": self.noise_std,
+                "generation": self.global_generation,
+                "batch_idx": batch_idx,
             }
         )
 
-        rollout_outputs: DataProto = self.actor_rollout_wg.evaluate_population(
+        rollout_outputs = self.actor_rollout_wg.evaluate_population(
             prompts=prompts,
             seeds=list(map(int, seeds)),
             noise_std=float(self.noise_std),
         )
+        if isinstance(rollout_outputs, list):
+            # Ray ONE_TO_ALL dispatch returns a per-rank list; grab the first materialized DataProto
+            rollout_outputs = next((item for item in rollout_outputs if item is not None), None)
+            if rollout_outputs is None:
+                raise RuntimeError("Actor rollout evaluate_population returned an empty result list")
+
         rollout_outputs.meta_info["do_print"] = do_print
-        rollout_outputs.non_tensor_batch.setdefault("extra_info", {})["do_print"] = do_print
 
         if self.reward_fn is not None:
             rewards_tensor = self.reward_fn(rollout_outputs)
@@ -387,12 +412,18 @@ class RayESTrainer:
         return rewards
 
     def _accumulate_update(self, seeds: Sequence[int], shaped_rewards: torch.Tensor):
-        shaped_rewards = shaped_rewards.detach().cpu().tolist()
+        shaped_rewards = shaped_rewards.detach()
+        if shaped_rewards.ndim > 1:
+            shaped_rewards = shaped_rewards.sum(dim=-1)
+        shaped_rewards = shaped_rewards.cpu().tolist()
         update = self.actor_rollout_wg.accumulate_es_update(
             seeds=list(map(int, seeds)),
             rewards=shaped_rewards,
             noise_std=float(self.noise_std),
         )
+        # Ray ONE_TO_ALL dispatch returns a list of per-worker results; take the first payload.
+        if isinstance(update, list) and update and isinstance(update[0], list):
+            update = update[0]
         return update
 
     def _apply_update(self, update) -> float:
@@ -508,6 +539,25 @@ class RayESTrainer:
             "generation/time_seconds": float(elapsed),
         }
 
+    def _summarize_population(self, member_rewards: torch.Tensor, elapsed: float) -> Dict[str, float]:
+        rewards_np = member_rewards.detach().cpu().numpy()
+        return {
+            "population/reward_mean": float(rewards_np.mean()),
+            "population/reward_max": float(rewards_np.max()),
+            "population/reward_min": float(rewards_np.min()),
+            "population/reward_std": float(rewards_np.std(ddof=0)),
+            "population/time_seconds": float(elapsed),
+        }
+
+    def _print_population_summary(self, generation: int, batch_idx: int, metrics: Dict[str, float]) -> None:
+        print(
+            f"[ES] generation={generation} population={batch_idx} "
+            f"mean={metrics['population/reward_mean']:.4f} "
+            f"max={metrics['population/reward_max']:.4f} "
+            f"min={metrics['population/reward_min']:.4f} "
+            f"time={metrics['population/time_seconds']:.2f}s"
+        )
+
     def _print_generation_summary(self, generation: int, metrics: Dict[str, float]) -> None:
         print(
             f"[ES] generation={generation} "
@@ -516,3 +566,7 @@ class RayESTrainer:
             f"min={metrics['generation/reward_min']:.4f} "
             f"time={metrics['generation/time_seconds']:.2f}s"
         )
+
+    def _print_population_summary(self, generation: int, batch_idx: int, rewards: torch.Tensor) -> None:
+        formatted = ", ".join(f"{i}:{float(r):.4f}" for i, r in enumerate(rewards))
+        print(f"[ES] gen={generation} batch={batch_idx} rewards[{formatted}]")

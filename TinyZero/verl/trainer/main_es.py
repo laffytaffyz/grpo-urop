@@ -17,15 +17,15 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-from verl.utils.reward_score import gsm8k, math, multiply, countdown
+from verl.utils.reward_score import gsm8k, math_reward, multiply, countdown
 from verl.trainer.es.ray_es_trainer import RayESTrainer, ResourcePoolManager, Role
 import os
 
 def _select_rm_score_fn(data_source):
-    if data_source == 'openai/gsm8k':
+    if data_source in 'openai/gsm8k':
         return gsm8k.compute_score
     elif data_source == 'lighteval/MATH':
-        return math.compute_score
+        return math_reward.compute_score
     elif "multiply" in data_source or "arithmetic" in data_source:
         return multiply.compute_score
     elif "countdown" in data_source:
@@ -45,6 +45,15 @@ class RewardManager():
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
         do_print = bool(data.meta_info.get("do_print", False))
+        if do_print and not getattr(self, "_debug_sampled", False):
+            sample = data[0]
+            print("[RewardManager] sample keys:", list(sample.batch.keys()))
+            print("[RewardManager] non_tensor keys:", list(sample.non_tensor_batch.keys()))
+            print("[RewardManager] data_source:", sample.non_tensor_batch.get("data_source"))
+            print("[RewardManager] reward_model:", sample.non_tensor_batch.get("reward_model"))
+            print("[RewardManager] es_seed:", sample.non_tensor_batch.get("es_seed"))
+            print("[RewardManager] es_member_idx:", sample.non_tensor_batch.get("es_member_idx"))
+            self._debug_sampled = True
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
@@ -54,6 +63,9 @@ class RewardManager():
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.bfloat16)
 
         already_print_data_sources = {}
+
+        generation = data.meta_info.get("generation", -1)
+        batch_idx = data.meta_info.get("batch_idx", -1)
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
@@ -73,7 +85,8 @@ class RewardManager():
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
 
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            reward_payload = data_item.non_tensor_batch['reward_model']
+            ground_truth = reward_payload['ground_truth']
 
             # select rm_score
             data_source = data_item.non_tensor_batch['data_source']
@@ -86,8 +99,12 @@ class RewardManager():
                 already_print_data_sources[data_source] = 0
 
             if already_print_data_sources[data_source] < self.num_examine:
-                already_print_data_sources[data_source] += 1
-                if do_print: print(sequences_str)
+                already_print_data_sources[data_source] += 1 
+                seed_info = data_item.non_tensor_batch.get("es_seed", "n/a")
+                member_idx = data_item.non_tensor_batch.get("es_member_idx", "n/a")
+                print(f"[RewardDump] gen={generation} batch={batch_idx} member={member_idx} seed={seed_info} idx={i} score={score} gt={ground_truth}")
+                if do_print:
+                    print(sequences_str)
 
         return reward_tensor
 

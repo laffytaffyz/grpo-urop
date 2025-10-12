@@ -17,8 +17,19 @@ import math
 from collections import defaultdict
 
 def extract_solution(solution_str, method='strict'):
+    marker = "Let me solve this step by step."
+    lower_str = solution_str.lower()
+    marker_lower = marker.lower()
+    marker_idx = lower_str.rfind(marker_lower)
+    if marker_idx != -1:
+        after_marker = solution_str[marker_idx + len(marker):]
+        think_close = after_marker.lower().find("</think>")
+        if think_close != -1:
+            solution_str = after_marker[think_close + len("</think>"):]
+        else:
+            solution_str = after_marker
     matches = re.findall(r"-?\d+(?:\.\d+)?", solution_str)
-    return matches[-1] if matches else ""
+    return matches[-1] if matches else None
 
     # assert method in ['strict', 'flexible']
 
@@ -289,6 +300,8 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0., 
     answer = extract_solution(solution_str=solution_str, method=method)
     do_print = extra_info is not None and extra_info['do_print']
     
+    print('do_print value is', do_print)
+    do_print = True # debug
     if do_print:
         print(f"--------------------------------")
         print(f"Desired answer: {ground_truth}")
@@ -296,17 +309,20 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0., 
         print(f"Solution string: {solution_str}")
 
     if answer is None:
-        score = language_diversity_reward(solution_str)
+        # score = language_diversity_reward(solution_str)
+        score = 0
         if do_print:
             print(f"No answer found, score:", score)
         return score
     else:
         if answer == ground_truth:
-            score = language_diversity_reward(solution_str)
+            # score = language_diversity_reward(solution_str)
+            score = 1
             if do_print:
                 print("Extracted answer correct, score:", score)
             return score
         else:
-            score = language_diversity_reward(solution_str)
+            score = 0.1
+            # score = language_diversity_reward(solution_str)
             print('Extracted answer incorrect, score:', score)
             return score

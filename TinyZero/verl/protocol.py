@@ -68,6 +68,7 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     assert tensor_dict1.batch_size == tensor_dict2.batch_size, \
         f'Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}'
     for key in tensor_dict2.keys():
+        print('debug', tensor_dict1[key], tensor_dict2[key])
         if key not in tensor_dict1.keys():
             tensor_dict1[key] = tensor_dict2[key]
         else:

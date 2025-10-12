@@ -65,9 +65,8 @@ class HFRollout(BaseRollout):
 
         # make sampling args can be overriden by inputs
         # do_sample = prompts.meta_info.get('do_sample', self.config.do_sample)
-        do_sample = prompts.meta_info.get('do_sample', getattr(self.config, "do_sample", False)) # change by tiffany
-        # response_length = prompts.meta_info.get('response_length', self.config.response_length)
-        response_length = prompts.meta_info.get('response_length', getattr(self.config, "response_length", 1024)) # change by tiffany
+        do_sample = prompts.meta_info.get('do_sample', getattr(self.config, "do_sample", False))
+        response_length = prompts.meta_info.get('response_length', getattr(self.config, "response_length", 1024))
         top_p = prompts.meta_info.get('top_p', self.config.get('top_p', 1.0))
         top_k = prompts.meta_info.get('top_k', self.config.get('top_k', 0))
 
@@ -75,8 +74,16 @@ class HFRollout(BaseRollout):
             top_k = 0
         top_k = max(0, top_k)  # to be compatible with vllm
 
-        # temperature = prompts.meta_info.get('temperature', self.config.temperature)
-        temperature = prompts.meta_info.get('temperature', getattr(self.config, "temperature", 1.0)) # change by tiffany
+        temperature = prompts.meta_info.get('temperature', getattr(self.config, "temperature", 1.0))
+        if do_sample:
+            if temperature is None or temperature <= 0:
+                temperature = 1.0
+            top_p = float(top_p) if top_p is not None else 1.0
+            if not (0.0 < top_p <= 1.0):
+                top_p = 1.0
+        else:
+            temperature = max(temperature, 1e-4)
+            top_p = 1.0
 
         generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
 

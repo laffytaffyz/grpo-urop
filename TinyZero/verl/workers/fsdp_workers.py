@@ -25,6 +25,7 @@ import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from verl import DataProto
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
 from verl.utils import hf_tokenizer
@@ -40,6 +41,7 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from codetiming import Timer
 import numpy as np
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -165,10 +167,11 @@ class ActorRolloutRefWorker(Worker):
             warnings.simplefilter("ignore")
 
             # for jobs that have cuda OOM error
-            print('path check', self.config.actor.path, any(model_name in self.config.actor.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral']))
+            print('es check', self.config.actor.algo == 'es')
             sync_module_states = not ("deep" in self.config.actor.path and any(rl_algo in self.config.actor.adv_estimator for rl_algo in ['grpo',"gae",'dpo'])) \
                                 and not ("Llama-3.2" in self.config.actor.path and "gae" in self.config.actor.adv_estimator) \
-                                and not any(model_name in self.config.actor.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral'])
+                                and not any(model_name in self.config.actor.path for model_name in ["Mistral",'Llama-3.1','llama-8b','mistral']) \
+                                and not self.config.actor.algo == 'es'
 
             if not sync_module_states:
                 actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
@@ -528,41 +531,100 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def evaluate_population(self, prompts: DataProto, seeds: list[int], noise_std: float) -> DataProto:
-        # 1. Keep a copy of the original weights.
-        original_params = [param.data.clone() for param in self.actor.actor_module.parameters()]
+        # If you offload params/opt elsewhere, bring them back before we mutate.
+        if self._is_offload_param:
+            load_fsdp_param_and_grad(module=self.actor_module_fsdp,
+                                    device_id=torch.cuda.current_device(),
+                                    load_grad=False)
 
         outputs = []
-        try:
-            for seed in seeds:
-                self._apply_noise(seed, noise_std)
-                # Reuse existing rollout path.
-                population_prompts = prompts.copy()
-                population_prompts.meta_info["recompute_log_prob"] = False
-                generated = self.generate_sequences(population_prompts)
-                generated.non_tensor_batch.setdefault("seed", np.array([seed], dtype=np.int64))
-                outputs.append(generated)
-                self._revert_noise(seed, noise_std)
-        finally:
-            for param, backup in zip(self.actor.actor_module.parameters(), original_params):
-                param.data.copy_(backup)
+        # Keep a CPU copy of full weights (robust to sharding) once.
+        with torch.no_grad(), FSDP.summon_full_params(self.actor_module_fsdp, writeback=True):
+            original_state = [p.detach().cpu().clone() for p in self.actor_module_fsdp.parameters()]
 
-        # Merge all outputs into a single DataProto
+        try:
+            print(f"[ES] evaluating population seeds={seeds} noise_std={noise_std}")
+            for member_idx, seed in enumerate(seeds):
+                try:
+                    self._apply_noise(seed, noise_std)
+                except Exception as err:
+                    print(f"[ES] apply_noise failed seed={seed} error={err}")
+                    raise
+
+                population_prompts = DataProto(
+                    batch=prompts.batch,  # shallow is fine for tensors; we won't mutate them
+                    non_tensor_batch=dict(prompts.non_tensor_batch),
+                    meta_info=dict(prompts.meta_info)
+                )
+                population_prompts.meta_info["recompute_log_prob"] = False
+
+                # Make a CPU copy to preserve metadata for later union without device mismatch.
+                population_prompts_cpu = DataProto(
+                    batch=population_prompts.batch.clone() if population_prompts.batch is not None else None,
+                    non_tensor_batch={k: v.copy() for k, v in population_prompts.non_tensor_batch.items()},
+                    meta_info=dict(population_prompts.meta_info)
+                )
+                batch_size_cpu = len(population_prompts_cpu)
+                population_prompts_cpu.non_tensor_batch["es_seed"] = np.array([int(seed)] * batch_size_cpu,
+                                                                               dtype=object)
+                population_prompts_cpu.non_tensor_batch["es_member_idx"] = np.array([int(member_idx)] * batch_size_cpu,
+                                                                                     dtype=object)
+
+                try:
+                    generated = self.generate_sequences(population_prompts)
+                except Exception as err:
+                    print(f"[ES] generate_sequences failed seed={seed} error={err}")
+                    raise
+
+                # carry over original metadata (e.g. reward labels) for downstream reward computation
+                generated.meta_info.update(population_prompts_cpu.meta_info)
+                for key, val in population_prompts_cpu.non_tensor_batch.items():
+                    generated.non_tensor_batch[key] = val
+                outputs.append(generated)
+
+                try:
+                    self._revert_noise(seed, noise_std)
+                except Exception as err:
+                    print(f"[ES] revert_noise failed seed={seed} error={err}")
+                    raise
+        except Exception as err:
+            print(f"[ES] evaluate_population aborting seeds={seeds} error={err}")
+            raise   
+        finally:
+            # Restore original weights precisely
+            with torch.no_grad(), FSDP.summon_full_params(self.actor_module_fsdp, writeback=True):
+                for p, backup in zip(self.actor_module_fsdp.parameters(), original_state):
+                    p.copy_(backup.to(p.device, dtype=p.dtype))  # dtype/device-safe restore
+
+            if self._is_offload_param:
+                # Optionally re-offload after the ES sweep
+                offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+        # Merge all outputs (each already moved to CPU by generate_sequences)
         return DataProto.concat(outputs)
+
     
     def _apply_noise(self, seed: int, scale: float) -> None:
         gen = torch.Generator(device="cuda")
         gen.manual_seed(int(seed))
-        for param in self.actor.actor_module.parameters():
-            noise = torch.randn_like(param, generator=gen)
-            param.data.add_(scale * noise)
+        with torch.no_grad(), FSDP.summon_full_params(self.actor_module_fsdp, writeback=True):
+            for p in self.actor_module_fsdp.parameters():
+                if p is None or p.numel() == 0:
+                    continue
+                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
+                p.add_(scale * noise)
 
     def _revert_noise(self, seed: int, scale: float) -> None:
         gen = torch.Generator(device="cuda")
         gen.manual_seed(int(seed))
-        for param in self.actor.actor_module.parameters():
-            noise = torch.randn_like(param, generator=gen)
-            param.data.sub_(scale * noise)
+        with torch.no_grad(), FSDP.summon_full_params(self.actor_module_fsdp, writeback=True):
+            for p in self.actor_module_fsdp.parameters():
+                if p is None or p.numel() == 0:
+                    continue
+                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
+                p.sub_(scale * noise)
     
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def accumulate_es_update(self, seeds: list[int], rewards: list[float], noise_std: float):
@@ -575,11 +637,13 @@ class ActorRolloutRefWorker(Worker):
             gen = torch.Generator(device="cuda")
             gen.manual_seed(int(seed))
             for update, param in zip(weighted_update, self.actor.actor_module.parameters()):
-                noise = torch.randn_like(param, generator=gen)
+                noise = torch.randn(param.shape, generator=gen, device=param.device, dtype=param.dtype)
                 update.add_(reward * noise)
 
         scale = 1.0 / (len(seeds) * noise_std)
-        return [update.mul_(scale).cpu() for update in weighted_update]
+        for idx in range(len(weighted_update)):
+            weighted_update[idx] = weighted_update[idx].mul_(scale).cpu()
+        return weighted_update
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def apply_es_update(self, updates: list[torch.Tensor], learning_rate: float):
@@ -1092,6 +1156,12 @@ class RewardModelWorker(Worker):
         data = data.to('cuda')
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
+        else:
+            rm_data = DataProto.from_dict({
+                'input_ids': data.batch['input_ids'],
+                'attention_mask': data.batch['attention_mask'],
+                'position_ids': data.batch['position_ids'],
+            })
 
         rm_data.batch = rm_data.batch.cuda()
 
